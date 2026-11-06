@@ -43,7 +43,7 @@ import {
 } from "./uploads.js";
 import { original, derived, sendFile } from "./streaming.js";
 import { reviewCreator, savePolicy } from "./policy.js";
-import { retryJob, cleanupCache } from "./worker.js";
+import { retryJob, cleanupCache, cancelJob } from "./worker.js";
 const root = path.resolve(import.meta.dirname, "..");
 export function createApp(config: Config, store = new Store(config)) {
   const app = express();
@@ -364,9 +364,31 @@ export function createApp(config: Config, store = new Store(config)) {
       String(q.params.id),
     );
     if (!collection) throw new MediaError("Collection not found.", 404);
-    const items = catalog(store, {}, q.mediaUser).filter(
-      (item) => item.metadata.collection === collection.id,
-    );
+    const ownerView =
+      q.mediaUser &&
+      (q.mediaUser.id === collection.owner || q.mediaUser.role === "admin");
+    const items = (
+      ownerView
+        ? store
+            .all(
+              "SELECT id,published,draft FROM media WHERE owner=? AND removed=0 ORDER BY updated DESC",
+              collection.owner,
+            )
+            .flatMap((row) => {
+              try {
+                const entry = publicMedia(
+                  store,
+                  row.id,
+                  q.mediaUser,
+                  row.published || row.draft,
+                );
+                return [{ ...entry, preview: !row.published }];
+              } catch {
+                return [];
+              }
+            })
+        : catalog(store, {}, q.mediaUser)
+    ).filter((item) => item.metadata.collection === collection.id);
     if (
       !items.length &&
       q.mediaUser?.id !== collection.owner &&
@@ -578,10 +600,7 @@ export function createApp(config: Config, store = new Store(config)) {
   app.get("/api/v1/processing-jobs", (q, r) => r.json({ items: ownerJobs(q) }));
   app.post("/api/v1/processing-jobs/:id/cancel", (q, r) => {
     const job = jobOwned(q);
-    store.run(
-      "UPDATE jobs SET cancel=1 WHERE id=? AND state IN ('queued','processing')",
-      job.id,
-    );
+    cancelJob(store, job.id);
     r.json({ ok: true });
   });
   app.post("/api/v1/processing-jobs/:id/retry", (q, r) => {

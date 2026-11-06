@@ -238,6 +238,9 @@ export function publishMedia(
     approve || actor.role === "admin" || actor.trusted
       ? "published"
       : "submitted";
+  if (item.published === version && row.publication === "published")
+    return "published";
+  if (row.publication === outcome && outcome === "submitted") return outcome;
   return store.transaction(() => {
     store.run("UPDATE versions SET publication=? WHERE id=?", outcome, version);
     if (outcome === "published")
@@ -267,6 +270,13 @@ export function rejectMedia(
   note: string,
 ) {
   administrator(store, user);
+  if (
+    !store.one(
+      "SELECT id FROM versions WHERE id=? AND publication='submitted'",
+      version,
+    )
+  )
+    throw new MediaError("This submission has already changed.", 409);
   if (!note.trim())
     throw new MediaError("Give a reason for returning this submission.");
   store.transaction(() => {

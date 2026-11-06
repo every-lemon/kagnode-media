@@ -38,6 +38,12 @@ export async function runJob(
   recoverJobs(store);
   const lease = uid(),
     job = store.transaction(() => {
+      if (
+        Number(
+          store.one("SELECT COUNT(*) n FROM jobs WHERE state='processing'").n,
+        ) >= store.policy().concurrency
+      )
+        return null;
       const row = store.one(
         "SELECT j.*,v.source,v.metadata,v.media_id FROM jobs j JOIN versions v ON v.id=j.version_id WHERE j.state='queued' AND j.cancel=0 ORDER BY j.created LIMIT 1",
       );
@@ -187,6 +193,29 @@ export async function runJob(
     fs.rmSync(folder, { recursive: true, force: true });
   }
   return true;
+}
+export function cancelJob(store: Store, key: string) {
+  return store.transaction(() => {
+    const job = store.one("SELECT * FROM jobs WHERE id=?", key);
+    if (!job) throw Error("Job not found.");
+    if (job.state === "queued") {
+      store.run(
+        "UPDATE jobs SET state='cancelled',cancel=1,updated=? WHERE id=?",
+        Date.now(),
+        key,
+      );
+      store.run(
+        "UPDATE versions SET state='cancelled' WHERE id=? AND state='queued'",
+        job.version_id,
+      );
+    } else if (job.state === "processing")
+      store.run(
+        "UPDATE jobs SET cancel=1,updated=? WHERE id=?",
+        Date.now(),
+        key,
+      );
+    return store.one("SELECT state,cancel FROM jobs WHERE id=?", key);
+  });
 }
 export function retryJob(store: Store, key: string) {
   if (

@@ -63,24 +63,38 @@ export function createUpload(store: Store, user: User, value: any) {
     filename = String(value.filename || "media")
       .replace(/[\x00-\x1f\x7f/\\]/g, "_")
       .slice(0, 200);
+  const existing = value.mediaId
+      ? ownedMedia(store, actor, String(value.mediaId))
+      : null,
+    owner = existing?.owner || actor.id,
+    account = store.user(owner);
+  if (!account) throw new MediaError("Media owner is unavailable.", 409);
+  if (
+    data.collection &&
+    !store.one(
+      "SELECT id FROM collections WHERE id=? AND owner=?",
+      data.collection,
+      owner,
+    )
+  )
+    throw new MediaError("Choose a collection owned by this media creator.");
   if (
     data.artwork &&
     !store.one(
       "SELECT v.id FROM versions v JOIN media m ON m.id=v.media_id WHERE v.id=? AND m.owner=? AND v.state='ready' AND json_extract(v.metadata,'$.kind')='image'",
       data.artwork,
-      actor.id,
+      owner,
     )
   )
     throw new MediaError("Choose your own ready image artwork.");
-  if (value.mediaId) ownedMedia(store, actor, String(value.mediaId));
   const id = uid(),
     version = uid();
   store.transaction(() => {
-    quota(store, actor, size);
+    quota(store, account, size);
     store.run(
       "INSERT INTO uploads(id,owner,media_id,version_id,filename,size,metadata,created) VALUES(?,?,?,?,?,?,?,?)",
       id,
-      actor.id,
+      owner,
       value.mediaId || null,
       version,
       filename,

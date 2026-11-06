@@ -583,3 +583,123 @@ test("malformed requests fail safely before authentication middleware initialize
   assert.match(html.text, /Unable to complete request/);
   assert.doesNotMatch(html.text, /ReferenceError|node_modules|\\.ts:/);
 });
+
+test("publication retries never demote approved media or duplicate review receipts", async () => {
+  const item = await upload();
+  await runJob(store, processor);
+  publishMedia(store, creator, item.id, item.version);
+  const count = store.one(
+    "SELECT COUNT(*) n FROM reviews WHERE version_id=?",
+    item.version,
+  ).n;
+  publishMedia(store, creator, item.id, item.version);
+  assert.equal(
+    store.one("SELECT COUNT(*) n FROM reviews WHERE version_id=?", item.version)
+      .n,
+    count,
+  );
+  publishMedia(store, admin, item.id, item.version, true);
+  const approved = store.one(
+    "SELECT COUNT(*) n FROM reviews WHERE version_id=?",
+    item.version,
+  ).n;
+  assert.equal(
+    publishMedia(store, creator, item.id, item.version),
+    "published",
+  );
+  assert.equal(publicMedia(store, item.id).version, item.version);
+  assert.equal(
+    store.one("SELECT COUNT(*) n FROM reviews WHERE version_id=?", item.version)
+      .n,
+    approved,
+  );
+});
+test("multiple worker instances respect a global lease bound; queued jobs cancel without a worker", async () => {
+  const item = await upload(),
+    otherItem = await upload(),
+    another = new Store(config);
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const first = runJob(store, {
+    async process(input, signal, progress) {
+      await pending;
+      return processor.process(input, signal, progress);
+    },
+  });
+  let claimed;
+  try {
+    claimed = await runJob(another, processor);
+  } finally {
+    release();
+    await first;
+    another.close();
+  }
+  assert.equal(claimed, false);
+  const { cancelJob } = await import("../src/worker.js");
+  const job = store.one(
+    "SELECT id FROM jobs WHERE version_id=?",
+    otherItem.version,
+  );
+  cancelJob(store, job.id);
+  assert.equal(
+    store.one("SELECT state FROM jobs WHERE id=?", job.id).state,
+    "cancelled",
+  );
+  assert.equal(
+    store.one("SELECT state FROM versions WHERE id=?", otherItem.version).state,
+    "cancelled",
+  );
+  assert.equal(
+    store.one("SELECT state FROM versions WHERE id=?", item.version).state,
+    "ready",
+  );
+});
+
+test("creator album previews include their private media and uploads cannot spoof another collection", async () => {
+  store.run(
+    "INSERT INTO collections VALUES(?,?,?,?,?)",
+    "own-album",
+    creator.id,
+    "Private album",
+    "album",
+    "",
+  );
+  store.run(
+    "INSERT INTO collections VALUES(?,?,?,?,?)",
+    "other-album",
+    other.id,
+    "Other album",
+    "album",
+    "",
+  );
+  assert.throws(
+    () =>
+      createUpload(store, creator, {
+        size: 3,
+        filename: "x",
+        metadata: { ...data("image", "private"), collection: "other-album" },
+      }),
+    /collection/,
+  );
+  const item = await upload(creator, {
+    ...data("image", "private"),
+    collection: "own-album",
+  });
+  await runJob(store, processor);
+  const owner = await login(creator.email);
+  const page = await owner.agent
+    .get("/albums/own-album")
+    .set("Host", "localhost");
+  assert.equal(page.status, 200);
+  assert.match(page.text, /Private preview/);
+  assert.match(page.text, new RegExp("version=" + item.version));
+  assert.equal((await host("get", "/albums/own-album")).status, 404);
+  const viewer = await login(other.email);
+  assert.equal(
+    (await viewer.agent.get("/albums/own-album").set("Host", "localhost"))
+      .status,
+    404,
+  );
+});

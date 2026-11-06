@@ -21,9 +21,9 @@ APIs use the same server session as the web UI. There are no application tokens 
 | PUT `/api/v1/uploads/:id` | Owner creator; binary body, Content-Length, Content-Range `bytes START-END/TOTAL` |
 | POST `/api/v1/uploads/:id/complete` | Owner creator; finish and queue processing |
 | DELETE `/api/v1/uploads/:id` | Owner/admin; cancel incomplete upload |
-| GET `/api/v1/jobs` | Creator-owned jobs or administrator's list |
-| POST `/api/v1/jobs/:id/cancel` | Owner/admin cancellation |
-| POST `/api/v1/jobs/:id/retry` | Owner/admin failed/cancelled job |
+| GET `/api/v1/processing-jobs` | Creator-owned jobs or administrator's list |
+| POST `/api/v1/processing-jobs/:id/cancel` | Owner/admin cancellation |
+| POST `/api/v1/processing-jobs/:id/retry` | Owner/admin failed/cancelled job |
 
 Metadata requires `title`, `kind` (`video/audio/image/file`), `category` (`movie/series/video/music/photo/file`), `visibility` (`public/unlisted/private`) and `delivery` (`viewer/inline/download`). Optional fields include description, comma-separated/array tags, collection ID, image artwork version, season and episode. Kind and category must match.
 
