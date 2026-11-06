@@ -1,0 +1,26 @@
+[Unit]
+Description=KagNode Media local processing worker
+After=network.target
+[Service]
+User=kagnode-media
+Group=kagnode-media
+WorkingDirectory=/opt/kagnode/media
+EnvironmentFile=/etc/kagnode/media.env
+ExecStart=/usr/bin/node /opt/kagnode/media/dist/worker.js
+Restart=on-failure
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/kagnode/media
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+MemoryHigh=1G
+MemoryMax=2G
+CPUQuota=200%
+TasksMax=96
+# For VAAPI/QSV add SupplementaryGroups=render video in a local override.
+# NVIDIA installations need their driver device access configured separately.
+[Install]
+WantedBy=multi-user.target

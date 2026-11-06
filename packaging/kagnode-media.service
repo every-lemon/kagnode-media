@@ -1,0 +1,21 @@
+[Unit]
+Description=KagNode Media web server
+After=network.target
+[Service]
+User=kagnode-media
+Group=kagnode-media
+WorkingDirectory=/opt/kagnode/media
+EnvironmentFile=/etc/kagnode/media.env
+ExecStart=/usr/bin/node /opt/kagnode/media/dist/server.js
+Restart=on-failure
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/kagnode/media
+MemoryHigh=512M
+MemoryMax=768M
+TasksMax=64
+[Install]
+WantedBy=multi-user.target
