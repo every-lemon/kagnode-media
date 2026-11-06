@@ -1,4 +1,4 @@
-import { Store, uid } from "./database.js";
+import { Store } from "./database.js";
 import { administrator } from "./auth.js";
 import { MediaError } from "./errors.js";
 import type { Policy, User } from "./types.js";

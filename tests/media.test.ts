@@ -566,3 +566,20 @@ test("publication API rejects ordinary viewers, missing CSRF and stale draft ver
     .send({ version: item.version, action: "submit" });
   assert.equal(response.body.state, "submitted");
 });
+
+test("malformed requests fail safely before authentication middleware initializes", async () => {
+  const json = await host("post", "/api/v1/uploads")
+    .set("Content-Type", "application/json")
+    .send("{");
+  assert.equal(json.status, 400);
+  assert.doesNotMatch(
+    JSON.stringify(json.body),
+    /ReferenceError|node_modules|\\.ts:/,
+  );
+  const html = await host("post", "/login")
+    .set("Content-Type", "application/json")
+    .send("{");
+  assert.equal(html.status, 400);
+  assert.match(html.text, /Unable to complete request/);
+  assert.doesNotMatch(html.text, /ReferenceError|node_modules|\\.ts:/);
+});

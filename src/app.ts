@@ -6,7 +6,7 @@ import { rateLimit } from "express-rate-limit";
 import fs from "node:fs";
 import path from "node:path";
 import type { Config } from "./config.js";
-import { Store, uid, digest } from "./database.js";
+import { Store, uid } from "./database.js";
 import { MediaError } from "./errors.js";
 import {
   identity,
@@ -130,6 +130,8 @@ export function createApp(config: Config, store = new Store(config)) {
     r.render("layout", {
       page,
       title,
+      user: q.mediaUser || null,
+      csrf: r.locals.csrf || "",
       path: q.path,
       asset,
       icon,
@@ -841,9 +843,11 @@ export function createApp(config: Config, store = new Store(config)) {
         ? error.status
         : error.code === "ENOENT"
           ? 404
-          : error.type === "entity.too.large"
-            ? 413
-            : 503;
+          : error.type === "entity.parse.failed"
+            ? 400
+            : error.type === "entity.too.large"
+              ? 413
+              : 503;
     const message =
       error instanceof MediaError
         ? error.message

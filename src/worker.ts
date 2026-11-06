@@ -1,3 +1,4 @@
+import { storageUsage } from "./uploads.js";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -126,13 +127,29 @@ export async function runJob(
         media = store.one("SELECT removed FROM media WHERE id=?", job.media_id);
       if (!row || row.lease !== lease || row.cancel || media?.removed)
         throw Error("Cancelled");
+      const owner = store.one(
+          "SELECT owner FROM media WHERE id=?",
+          job.media_id,
+        )?.owner,
+        user = owner && store.user(owner),
+        policy = store.policy();
+      if (
+        !user ||
+        storageUsage(store, owner) + outputBytes > user.quota ||
+        storageUsage(store) + outputBytes > policy.globalQuota
+      )
+        throw Error("Storage quota exceeded.");
       fs.renameSync(folder, final);
       store.run(
         "UPDATE versions SET metadata=?,mime=?,state='ready',derived=?,processing=? WHERE id=?",
         JSON.stringify(result.metadata),
         result.metadata.mime || "application/octet-stream",
         finalRelative,
-        JSON.stringify({ files: result.files, profiles: result.profiles }),
+        JSON.stringify({
+          files: result.files,
+          profiles: result.profiles,
+          bytes: outputBytes,
+        }),
         job.version_id,
       );
       store.run(

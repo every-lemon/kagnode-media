@@ -253,12 +253,48 @@
         }
         const { rail, thumb } = bar(state, axis);
         rail.hidden = false;
-        const top = Math.max(4, rectangle.top + 4),
-          left = Math.max(4, rectangle.left + 4),
-          bottom = Math.min(innerHeight - 4, rectangle.bottom - 4),
-          right = Math.min(innerWidth - 4, rectangle.right - 4);
-        rail.style.top = (axis === "y" ? top : bottom - 9) + "px";
-        rail.style.left = (axis === "y" ? right - 9 : left) + "px";
+        let clip = { top: 0, left: 0, right: innerWidth, bottom: innerHeight };
+        for (
+          let parent = element.parentElement;
+          parent &&
+          parent !== document.body &&
+          parent !== document.documentElement;
+          parent = parent.parentElement
+        ) {
+          const style = getComputedStyle(parent),
+            box = parent.getBoundingClientRect();
+          if (/auto|scroll|hidden|clip/.test(style.overflowY)) {
+            clip.top = Math.max(clip.top, box.top);
+            clip.bottom = Math.min(clip.bottom, box.bottom);
+          }
+          if (/auto|scroll|hidden|clip/.test(style.overflowX)) {
+            clip.left = Math.max(clip.left, box.left);
+            clip.right = Math.min(clip.right, box.right);
+          }
+        }
+        const top = Math.max(clip.top + 4, rectangle.top + 4),
+          left = Math.max(clip.left + 4, rectangle.left + 4),
+          bottom = Math.min(clip.bottom - 4, rectangle.bottom - 4),
+          right = Math.min(clip.right - 4, rectangle.right - 4);
+        const host = rail.parentElement,
+          hostStyle = getComputedStyle(host),
+          offset =
+            host !== document.body &&
+            (hostStyle.transform !== "none" ||
+              hostStyle.perspective !== "none" ||
+              /paint|layout|strict|content/.test(hostStyle.contain))
+              ? host.getBoundingClientRect()
+              : { top: 0, left: 0 };
+        rail.style.top =
+          (axis === "y" ? top : bottom - 9) -
+          offset.top -
+          host.clientTop +
+          "px";
+        rail.style.left =
+          (axis === "y" ? right - 9 : left) -
+          offset.left -
+          host.clientLeft +
+          "px";
         const length = Math.max(0, axis === "y" ? bottom - top : right - left);
         rail.style[axis === "y" ? "height" : "width"] = length + "px";
         const size = Math.min(
@@ -505,7 +541,8 @@
           !r.target.closest?.(".kn-scroll-rail,.kn-scroll-preference") &&
           (r.type === "childList" ||
             r.attributeName === "open" ||
-            r.attributeName === "hidden"),
+            r.attributeName === "hidden" ||
+            r.attributeName === "class"),
       )
     )
       scheduleScan();
@@ -513,7 +550,7 @@
     subtree: true,
     childList: true,
     attributes: true,
-    attributeFilter: ["open", "hidden"],
+    attributeFilter: ["open", "hidden", "class"],
   });
   let preferenceButton;
   function preference() {
@@ -521,14 +558,21 @@
       preferenceButton = document.createElement("button");
       preferenceButton.type = "button";
       preferenceButton.className = "kn-scroll-preference";
-      (
-        document.querySelector(
-          ".kn-product-signature,.portal-footer,.site-footer,.mail-footer,.sidebar-bottom,.auth-footer",
-        ) || document.body
-      ).append(preferenceButton);
+
       preferenceButton.onclick = () =>
         setMode(mode === "custom" ? "native" : "custom");
     }
+    const host =
+      [
+        ...document.querySelectorAll(
+          ".kn-product-signature,.portal-footer,.site-footer,.mail-footer,.main-footer,.sidebar-bottom,.auth-footer,.sim-footer",
+        ),
+      ].find(
+        (element) =>
+          element.getClientRects().length &&
+          !element.closest("[hidden],.hidden,[aria-hidden=true]"),
+      ) || document.body;
+    if (preferenceButton.parentElement !== host) host.append(preferenceButton);
     preferenceButton.textContent =
       mode === "custom" ? "Use native scrolling" : "Use KagNode scrolling";
     preferenceButton.setAttribute("aria-pressed", String(mode === "native"));

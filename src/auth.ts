@@ -1,7 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { promisify } from "node:util";
 import type { RequestHandler, Response, Request } from "express";
 import { Store, uid, digest } from "./database.js";
 import { MediaError } from "./errors.js";

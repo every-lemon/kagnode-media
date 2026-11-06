@@ -10,24 +10,40 @@ import { metadata, ownedMedia } from "./media.js";
 import { MediaError } from "./errors.js";
 import type { User } from "./types.js";
 const maxChunk = 16 * 1024 ** 2;
-function quota(store: Store, user: User, size: number) {
-  const policy = store.policy();
-  if (!Number.isSafeInteger(size) || size < 1 || size > policy.uploadLimit)
-    throw new MediaError("File exceeds the installation upload limit.", 413);
-  const usage = (owner?: string) =>
+export function storageUsage(store: Store, owner?: string) {
+  const filter = owner
+    ? "WHERE media_id IN (SELECT id FROM media WHERE owner=?)"
+    : "";
+  const parameters = owner ? [owner] : [];
+  return (
     Number(
       store.one(
-        `SELECT COALESCE(SUM(size),0) n FROM (SELECT source,MAX(size) size FROM versions ${owner ? "WHERE media_id IN (SELECT id FROM media WHERE owner=?)" : ""} GROUP BY source)`,
-        ...(owner ? [owner] : []),
+        `SELECT COALESCE(SUM(size),0) n FROM (SELECT source,MAX(size) size FROM versions ${filter} GROUP BY source)`,
+        ...parameters,
+      ).n,
+    ) +
+    Number(
+      store.one(
+        `SELECT COALESCE(SUM(bytes),0) n FROM (SELECT derived,MAX(COALESCE(json_extract(processing,'$.bytes'),0)) bytes FROM versions ${filter} GROUP BY derived)`,
+        ...parameters,
       ).n,
     ) +
     Number(
       store.one(
         `SELECT COALESCE(SUM(size),0) n FROM uploads WHERE state IN ('open','finalizing') ${owner ? "AND owner=?" : ""}`,
-        ...(owner ? [owner] : []),
+        ...parameters,
       ).n,
-    );
-  if (usage(user.id) + size > user.quota || usage() + size > policy.globalQuota)
+    )
+  );
+}
+function quota(store: Store, user: User, size: number) {
+  const policy = store.policy();
+  if (!Number.isSafeInteger(size) || size < 1 || size > policy.uploadLimit)
+    throw new MediaError("File exceeds the installation upload limit.", 413);
+  if (
+    storageUsage(store, user.id) + size > user.quota ||
+    storageUsage(store) + size > policy.globalQuota
+  )
     throw new MediaError("Storage quota exceeded.", 413);
   const disk = fs.statfsSync(store.config.data);
   if (Number(disk.bavail) * Number(disk.bsize) < size + 100 * 1024 ** 2)

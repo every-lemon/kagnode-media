@@ -1,7 +1,4 @@
-import fs from "node:fs";
-import path from "node:path";
-import { createInterface } from "node:readline/promises";
-import { stdin, stdout } from "node:process";
+import { stdin } from "node:process";
 import { configuration } from "./config.js";
 import { Store } from "./database.js";
 import { createUser, passwordHash, emailAddress } from "./auth.js";

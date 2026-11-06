@@ -14,6 +14,8 @@ const clean = (value: unknown, max: number) => {
   return value.trim();
 };
 export function metadata(value: any): MediaMetadata {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new MediaError("Provide media metadata.");
   const title = clean(value.title, 200),
     description = clean(value.description || "", 10000);
   if (!title) throw new MediaError("Add a media title.");
