@@ -54,7 +54,19 @@
   function move(state, axis, delta, immediate = false) {
     const d = dimensions(state.element, axis);
     if (!state.animation) state.target[axis] = d.value;
-    state.target[axis] = clamp(state.target[axis] + delta, d.max);
+    if (
+      state.animation &&
+      Math.sign(state.target[axis] - d.value) !== Math.sign(delta)
+    )
+      stop(state);
+    state.target[axis] = clamp(
+      d.value +
+        Math.max(
+          -d.length,
+          Math.min(d.length, state.target[axis] - d.value + delta),
+        ),
+      d.max,
+    );
     if (immediate || reduce.matches) {
       stop(state);
       setPosition(state, axis, d.value + delta);
@@ -64,7 +76,7 @@
     if (state.animation) return;
     let previous = performance.now();
     const tick = (now) => {
-      const blend = 1 - Math.exp(-Math.min(40, now - previous) / 45);
+      const blend = 1 - Math.exp(-Math.min(40, now - previous) / 32);
       previous = now;
       let unfinished = false;
       for (const a of axes) {
@@ -370,7 +382,12 @@
           : event.deltaMode === 2
             ? dimensions(state.element, axis).length
             : 1;
-      move(state, axis, raw * unit);
+      move(
+        state,
+        axis,
+        raw * unit,
+        event.deltaMode === 0 && Math.abs(raw) < 45,
+      );
     },
     { passive: false },
   );
@@ -552,30 +569,132 @@
     attributes: true,
     attributeFilter: ["open", "hidden", "class"],
   });
-  let preferenceButton;
-  function preference() {
-    if (!preferenceButton?.isConnected) {
-      preferenceButton = document.createElement("button");
-      preferenceButton.type = "button";
-      preferenceButton.className = "kn-scroll-preference";
-
-      preferenceButton.onclick = () =>
-        setMode(mode === "custom" ? "native" : "custom");
+  function navigation() {
+    if (!document.body.hasAttribute("data-kn-manual-navigation")) return;
+    const sidebar = document.querySelector(".sidebar"),
+      topbar = document.querySelector(".topbar");
+    if (
+      !sidebar ||
+      !topbar ||
+      document.querySelector("[data-kn-navigation-toggle]")
+    )
+      return;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "kn-navigation-toggle";
+    button.dataset.knNavigationToggle = "";
+    if (!sidebar.id) sidebar.id = "kn-navigation";
+    button.setAttribute("aria-controls", sidebar.id);
+    let collapsed = false;
+    try {
+      collapsed = localStorage.getItem("kagnode.sidebarCollapsed") === "true";
+    } catch {}
+    function paintNavigation() {
+      document.body.classList.toggle("kn-navigation-collapsed", collapsed);
+      button.setAttribute("aria-expanded", String(!collapsed));
+      button.setAttribute(
+        "aria-label",
+        collapsed ? "Show navigation" : "Hide navigation",
+      );
+      button.title = collapsed ? "Show navigation" : "Hide navigation";
+      button.textContent = collapsed ? "›" : "‹";
+      scheduleScan();
     }
-    const host =
-      [
-        ...document.querySelectorAll(
-          ".kn-product-signature,.portal-footer,.site-footer,.mail-footer,.main-footer,.sidebar-bottom,.auth-footer,.sim-footer",
-        ),
-      ].find(
-        (element) =>
-          element.getClientRects().length &&
-          !element.closest("[hidden],.hidden,[aria-hidden=true]"),
-      ) || document.body;
-    if (preferenceButton.parentElement !== host) host.append(preferenceButton);
-    preferenceButton.textContent =
-      mode === "custom" ? "Use native scrolling" : "Use KagNode scrolling";
-    preferenceButton.setAttribute("aria-pressed", String(mode === "native"));
+    button.addEventListener("click", () => {
+      collapsed = !collapsed;
+      try {
+        localStorage.setItem("kagnode.sidebarCollapsed", String(collapsed));
+      } catch {}
+      paintNavigation();
+    });
+    topbar.prepend(button);
+    paintNavigation();
+  }
+  function preference() {
+    navigation();
+    document
+      .querySelectorAll(".kn-scroll-preference")
+      .forEach((node) => node.remove());
+    for (const host of document.querySelectorAll("[data-kn-scroll-settings]")) {
+      if (!host.querySelector("[data-kn-scroll-choice]")) {
+        const title = document.createElement("h3");
+        title.textContent = "Scrolling";
+        const note = document.createElement("p");
+        note.textContent =
+          "Choose how this browser scrolls. Your preference is saved on this device.";
+        const group = document.createElement("div");
+        group.className = "kn-scroll-options";
+        group.setAttribute("role", "group");
+        group.setAttribute("aria-label", "Scrolling preference");
+        for (const [value, label, description] of [
+          [
+            "custom",
+            "KagNode",
+            "Custom rails with responsive wheel scrolling.",
+          ],
+          [
+            "native",
+            "System",
+            "Use your browser’s standard scrolling controls.",
+          ],
+        ]) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.dataset.knScrollChoice = value;
+          const strong = document.createElement("strong");
+          strong.textContent = label;
+          const detail = document.createElement("span");
+          detail.textContent = description;
+          button.append(strong, detail);
+          button.addEventListener("click", () => setMode(value));
+          group.append(button);
+        }
+        host.classList.add("kn-scroll-settings");
+        host.append(title, note, group);
+      }
+      host
+        .querySelectorAll("[data-kn-scroll-choice]")
+        .forEach((button) =>
+          button.setAttribute(
+            "aria-pressed",
+            String(button.dataset.knScrollChoice === mode),
+          ),
+        );
+    }
+    // Apps without a dedicated preferences page expose the same panel in Settings.
+    const topbar = document.querySelector(
+      "[data-kn-preferences-button-host],.topbar-right,.account-controls,.topbar,.sim-header,.demo-header",
+    );
+    if (
+      !document.querySelector("[data-kn-scroll-settings]") &&
+      topbar &&
+      !document.querySelector("[data-kn-preference-open]")
+    ) {
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "kn-preferences-button";
+      open.dataset.knPreferenceOpen = "";
+      open.textContent = "Preferences";
+      open.setAttribute("aria-haspopup", "dialog");
+      const dialog = document.createElement("dialog");
+      dialog.className = "kn-preferences-dialog";
+      dialog.setAttribute("aria-label", "Interface preferences");
+      const close = document.createElement("button");
+      close.type = "button";
+      close.className = "kn-preferences-button";
+      close.textContent = "Close";
+      close.addEventListener("click", () => dialog.close());
+      const panel = document.createElement("section");
+      panel.dataset.knScrollSettings = "";
+      dialog.append(close, panel);
+      document.body.append(dialog);
+      open.addEventListener("click", () => {
+        preference();
+        dialog.showModal();
+        scheduleScan();
+      });
+      topbar.append(open);
+    }
   }
   function setMode(value) {
     mode = value === "native" ? "native" : "custom";

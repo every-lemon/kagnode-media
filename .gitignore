@@ -7,3 +7,10 @@ test-artifacts/
 *.key
 .data/
 private/
+
+# Repository release tooling
+dist/
+.build/
+.ruff_cache/
+__pycache__/
+*.pyc

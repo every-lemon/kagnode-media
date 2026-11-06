@@ -1,0 +1,8 @@
+{
+  "repository": "kagnode-media",
+  "version_file": "package.json",
+  "version_pattern": "\"version\"\\s*:\\s*\"([^\"]+)\"",
+  "kind": "application",
+  "license": "AGPL-3.0-only",
+  "revision": 1
+}

@@ -7,7 +7,7 @@
   <script src="<%= asset('media.js') %>" defer></script><script src="<%= asset('kagnode-scroll.js') %>" defer></script>
   <% if(page==='player'){ %><script src="<%= asset('hls.js') %>" defer></script><script src="<%= asset('player.js') %>" defer></script><% } %>
 </head>
-<body class="kn-ui">
+<body data-kn-manual-navigation class="kn-ui">
 <a class="skip-link" href="#main">Skip to content</a><div class="page-progress" hidden data-page-progress></div>
 <button type="button" class="sidebar-scrim" data-close-navigation aria-label="Close navigation" hidden></button>
 <aside class="sidebar"><a class="brand" href="/"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M4 18C4 9 11 4 23 5L18 27C10 28 4 25 4 18Z"/><path d="m25 11 4 5-3 10-4-3Z"/></svg><span><strong>KagNode<span>.</span></strong><small>Media</small></span></a>

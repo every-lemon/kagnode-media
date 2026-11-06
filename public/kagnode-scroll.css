@@ -63,23 +63,74 @@
 .kn-scroll-rail[hidden] {
   display: none !important;
 }
-.kn-scroll-preference {
-  border: 0;
-  padding: 5px 0;
-  margin: 0 6px;
-  min-height: 32px;
-  background: transparent;
+
+.kn-scroll-settings {
+  padding: 20px 0;
+  max-width: 760px;
+}
+.kn-scroll-settings h3 {
+  font: 600 16px/1.4 system-ui;
+  margin: 0 0 8px;
+}
+.kn-scroll-settings p {
+  font: 13px/1.6 system-ui;
+  opacity: 0.75;
+  margin: 0 0 16px;
+}
+.kn-scroll-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.kn-scroll-options button {
+  display: grid;
+  gap: 6px;
+  flex: 1;
+  min-width: 190px;
+  text-align: left;
+  padding: 14px 17px;
+  border: 1px solid #8885;
+  border-radius: 12px;
   color: inherit;
-  opacity: 0.8;
-  font: inherit;
-  font-size: 11px;
+  background: transparent;
+  font: 13px/1.5 system-ui;
   cursor: pointer;
-  text-align: start;
 }
-.kn-scroll-preference:hover {
-  opacity: 1;
-  text-decoration: underline;
+.kn-scroll-options button span {
+  opacity: 0.75;
+  font-size: 12px;
 }
+.kn-scroll-options button[aria-pressed="true"] {
+  border-color: #6699ee;
+  background: #3978fa13;
+}
+.kn-scroll-options button:focus-visible {
+  outline: 3px solid #6699ee;
+  outline-offset: 3px;
+}
+.kn-preferences-button {
+  font: 12px/1.4 system-ui;
+  color: inherit;
+  border: 1px solid #8885;
+  background: transparent;
+  border-radius: 10px;
+  padding: 9px 12px;
+  cursor: pointer;
+}
+.kn-preferences-dialog {
+  color: inherit;
+  background: var(--kn-surface, var(--surface, #191b20));
+  border: 1px solid #8885;
+  border-radius: 20px;
+  padding: 24px;
+  width: min(600px, calc(100% - 30px));
+  max-height: 85dvh;
+  overflow: auto;
+}
+.kn-preferences-dialog::backdrop {
+  background: #0009;
+}
+
 @media (pointer: coarse) {
   .kn-scroll-y,
   .kn-scroll-y .kn-scroll-thumb {
@@ -97,7 +148,54 @@
 }
 @media print {
   .kn-scroll-rail,
-  .kn-scroll-preference {
+  .kn-preferences-button,
+  .kn-navigation-toggle,
+  .kn-preferences-dialog {
     display: none !important;
+  }
+}
+.kn-navigation-toggle {
+  display: none;
+}
+@media (min-width: 1024px) {
+  [data-kn-manual-navigation] .kn-navigation-toggle {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: 1px solid #8884;
+    border-radius: 9px;
+    background: transparent;
+    color: inherit;
+    font: 24px/1 system-ui;
+    cursor: pointer;
+  }
+  [data-kn-manual-navigation] .sidebar {
+    transition: transform 0.18s ease;
+  }
+  [data-kn-manual-navigation].kn-navigation-collapsed .sidebar {
+    transform: translateX(calc(-100% - 30px));
+    visibility: hidden;
+  }
+  [data-kn-manual-navigation].kn-navigation-collapsed
+    .workspace:not(#workspace) {
+    margin-left: 0 !important;
+  }
+  [data-kn-manual-navigation].kn-navigation-collapsed .main {
+    margin-left: 0 !important;
+    width: 100% !important;
+  }
+  [data-kn-manual-navigation].kn-navigation-collapsed .topbar {
+    left: 0 !important;
+  }
+  [data-kn-manual-navigation].kn-navigation-collapsed .kn-product-signature {
+    margin-left: 24px !important;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-kn-manual-navigation] .sidebar {
+    transition: none;
   }
 }

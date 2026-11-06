@@ -1,42 +1,80 @@
-<picture><source media="(prefers-color-scheme: dark)" srcset="assets/wordmark-white.svg"><img src="assets/wordmark.svg" width="260" alt="KagNode."></picture>
+<p align="center"><img src="assets/kagnode-wordmark.svg" width="440" alt="KagNode."></p>
 
 # KagNode Media
 
-A self-hosted library for videos, movies, series, music and photos. Browse a catalog, keep favorites and playback progress, and publish from an approved creator account.
+## Overview
 
-**Source preview · 0.1.0-preview.1.** This is the first implementation, not a stable release. Automated checks use isolated stores and mocked processing outputs. FFmpeg, codecs, GPU acceleration, playback interoperability and production deployment have **not** been verified. No Media service was deployed to KagNode's machines for this release.
+Source preview of self-hosted video, audio, photo and album publishing.
 
-## What is included
+## Release status
 
-- Separate viewer, approved creator and administrator accounts, with optional trusted publishing.
-- Resumable streamed uploads, quota reservations, creator collections, metadata and artwork, review submissions and version history.
-- Stable item links that open the Media UI, inline original or original download, within administrator delivery policy.
-- Publication checks on every original, thumbnail and stream request. Originals are stored outside public assets.
-- Persistent processing jobs with bounded concurrency, cancellation, progress and stale-lease recovery. A separate worker implements local ffprobe/FFmpeg and image derivatives.
-- Direct playback and seeking, adaptive HLS player, photo viewing, search, filters, favorites, reports and saved playback position.
-- Shared KagNode controls, custom scrolling with a native option, light/dark themes, responsive navigation and readable source.
+Product source: **0.1.0-preview.1**. Packaging preview: **0.1.0-preview.1.packaging.1**.
 
-Movies/series are video categories; music is audio; albums and series use creator-owned collections. Public catalog results are currently capped at 200 items per search. Unlisted links are omitted from discovery; private items are visible only to their creator and administrators. This preview does not implement sharing groups or anonymous private-link tokens.
+Packaging prereleases do not change the latest stable release or establish new hardware or service compatibility. See [verification](docs/VERIFICATION.md) and [changelog](CHANGELOG.md).
 
-Live broadcasting, billing, DRM and native TV/mobile applications are outside this release.
+## Features
 
-## Development
+- Viewer, creator and administrator accounts with review-based publishing.
+- Resumable uploads, catalog browsing, access-controlled delivery and playback progress.
+- Separate persistent processing worker with bounded jobs and cancellation.
 
-Node.js **24** is required. SQLite is provided by Node's `node:sqlite`; no database daemon is needed.
+## Requirements
+
+Node.js 24, SQLite and filesystem storage. Native media processing requires a compatible FFmpeg build and separate verification.
+
+## Installation and downloads
+
+Download from [GitHub Releases](https://github.com/every-lemon/kagnode-media/releases). Verify `SHA256SUMS` before extracting or installing a package.
+
+| Payload | Formats | Support |
+| --- | --- | --- |
+| Complete source / artwork | `.tar.xz`, `.tar.gz`, `.zip` | Named top-level directory; manual setup |
+| Source preview | `.deb` | Source only; does not provision a service |
+| Source preview | `.rpm` | Rocky Linux 10 packaging preview; native services unverified |
+
+
+
+Source packages install under `/usr/share/kagnode/`; they do not replace an existing application, migrate data, start services or configure networking.  See [package details](docs/PACKAGING.md).
+
+## Usage
 
 ```sh
 npm ci
+npm run build
+# Configure the server using docs/SETUP.md before starting it.
+```
+
+See [operations and existing setup instructions](docs/OPERATIONS.md) for the full workflow and its prerequisites.
+
+## Configuration and storage
+
+Originals, databases and worker output stay outside public assets. No processing worker or transcoding is started by the preview packages.
+
+## Security
+
+Use HTTPS and least-privilege accounts for hosted services. Keep secrets and user data out of Git. Preview packages are for inspection and controlled testing; native service and hardware claims remain limited to recorded verification. See [security guidance](docs/SECURITY.md).
+
+## Development and testing
+
+```sh
 npm run check
 npm test
 npm run build
+python3 scripts/repository_check.py
+python3 scripts/format_source.py --check
+python3 scripts/release.py --output dist/packages
 ```
 
-Tests never invoke the native processing executables. `npm start` starts the web process; `npm run worker` starts **real local processing** and is an installation action, not a test. Use only trusted local configuration and review [setup](docs/SETUP.md) first.
+Install the formatting dependencies from `requirements-format.txt`. Package building additionally needs `dpkg-deb`, `rpmbuild`, XZ support and, for CLI binaries, Go. Read [the repository map](docs/STRUCTURE.md) before editing generated files.
 
-- [Setup and Linux services](docs/SETUP.md)
-- [Architecture and editing guide](docs/ARCHITECTURE.md)
-- [Versioned API](docs/API.md)
-- [Verification limits](VERIFICATION.md)
-- [Security and backups](SECURITY.md)
+## Documentation
 
-AGPL-3.0-only. See [LICENSE](LICENSE). KagNode artwork identifies this project; code minification and asset fingerprints do not restrict the source rights granted by its license.
+- [Repository structure](docs/STRUCTURE.md)
+- [Operations](docs/OPERATIONS.md)
+- [Packages and release process](docs/PACKAGING.md)
+- [Verification and limits](docs/VERIFICATION.md)
+- [Changelog](CHANGELOG.md)
+
+## Licensing
+
+See [LICENSE](LICENSE) and retained third-party notices. KagNode artwork retains its separate permission and brand policy; the application uses AGPL-3.0-only.
