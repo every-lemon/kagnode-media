@@ -1,3 +1,4 @@
+import { AccountProfiles } from "./account-sync.js";
 import { icon } from "./icons.js";
 import express from "express";
 import type { Request, Response } from "express";
@@ -119,6 +120,27 @@ export function createApp(config: Config, store = new Store(config)) {
   app.use((q, r, next) =>
     ["GET", "HEAD"].includes(q.method) ? next() : writes(q, r, next),
   );
+  const accountProfiles = new AccountProfiles(store, config.origin);
+  app
+    .route("/api/v1/kagnode-account")
+    .get(async (q, r) => {
+      const user = requireUser(q);
+      r.set("Cache-Control", "no-store").json(
+        await accountProfiles.state(user.id, user.name, user.role === "admin"),
+      );
+    })
+    .post(async (q, r) => {
+      const user = requireUser(q);
+      r.set("Cache-Control", "no-store").json(
+        await accountProfiles.handle(
+          user.id,
+          user.name,
+          user.role === "admin",
+          String(q.body.action || "state"),
+          q.body,
+        ),
+      );
+    });
   const asset = (name: string) => "/static/" + (assets[name] || name);
   const render = (
     q: Request,

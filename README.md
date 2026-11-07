@@ -18,6 +18,8 @@ Packaging prereleases do not change the latest stable release or establish new h
 - Resumable uploads, catalog browsing, access-controlled delivery and playback progress.
 - Separate persistent processing worker with bounded jobs and cancellation.
 
+Optional KagNode Account linking syncs your display name and photo after explicit approval. Your local application administrator can disable it. Local sign-in and permissions stay independent.
+
 ## Requirements
 
 Node.js 24, SQLite and filesystem storage. Native media processing requires a compatible FFmpeg build and separate verification.
@@ -73,6 +75,7 @@ Install the formatting dependencies from `requirements-format.txt`. Package buil
 - [Operations](docs/OPERATIONS.md)
 - [Packages and release process](docs/PACKAGING.md)
 - [Verification and limits](docs/VERIFICATION.md)
+- [KagNode Account linking](docs/ACCOUNT-SYNC.md)
 - [Changelog](CHANGELOG.md)
 
 ## Licensing
