@@ -1,5 +1,9 @@
 ## Ecosystem update panel — packaging preview 2
 
+## Shared UI preview 4
+
+- Use the Core mobile drawer and loading overlay exclusively; retain application form confirmation and logout timing. Show the account email inside its popover.
+
 ## Core integration preview
 
 Shared local UI components, manual animated navigation, natural scrolling rails and icon account menus. Added separate appearance-only account connections and signed UI patch controls. Existing storage, native services and prior release records are retained.

@@ -2,27 +2,6 @@
 (() => {
   const $ = (selector) => document.querySelector(selector),
     csrf = () => $("input[name=_csrf]")?.value || "";
-  const root = document.documentElement;
-  $("button[data-theme]")?.addEventListener("click", () => {
-    root.dataset.theme = root.dataset.theme === "light" ? "dark" : "light";
-    try {
-      localStorage.setItem("kagnode.theme", root.dataset.theme);
-    } catch {}
-  });
-  const closeNavigation = () => {
-    document.body.classList.remove("navigation-open");
-    $("[data-close-navigation]").hidden = true;
-    $("[data-navigation]").setAttribute("aria-expanded", "false");
-  };
-  $("[data-navigation]")?.addEventListener("click", () => {
-    document.body.classList.add("navigation-open");
-    $("[data-close-navigation]").hidden = false;
-    $("[data-navigation]").setAttribute("aria-expanded", "true");
-  });
-  $("[data-close-navigation]")?.addEventListener("click", closeNavigation);
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeNavigation();
-  });
   async function request(url, options = {}) {
     const response = await fetch(url, {
       ...options,
@@ -80,6 +59,10 @@
     strip = $("[data-page-progress]");
   let deferred = false;
   function showLoading(text) {
+    if (window.KagNodeCore) {
+      window.KagNodeCore.loading.show(text);
+      return;
+    }
     loading.hidden = false;
     strip.hidden = false;
     $("[data-loading-label]").textContent = text;
@@ -111,9 +94,25 @@
       setTimeout(() => form.requestSubmit(event.submitter), 3000);
       return;
     }
-    showLoading(form.method === "get" ? "Loading…" : "Saving…");
+    const action = form.getAttribute("action") || location.pathname;
+    showLoading(
+      action === "/logout"
+        ? "Logging out…"
+        : action === "/login"
+          ? "Signing in…"
+          : action === "/register"
+            ? "Creating account…"
+            : form.method === "get"
+              ? "Loading…"
+              : /remove|delete/.test(action)
+                ? "Removing…"
+                : /publish|submit/.test(action)
+                  ? "Updating publication…"
+                  : "Saving changes…",
+    );
   });
   addEventListener("pageshow", () => {
+    window.KagNodeCore?.loading.hide();
     if (loading) loading.hidden = true;
     if (strip) strip.hidden = true;
     deferred = false;
