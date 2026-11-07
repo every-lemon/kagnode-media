@@ -247,7 +247,7 @@ label {
   background: var(--kn-bg);
   z-index: 4;
 }
-.topbar > [data-navigation] {
+.topbar > [data-mobile] {
   display: none;
 }
 .header-search {
@@ -887,7 +887,7 @@ progress::-moz-progress-bar {
     padding: 12px 16px;
     gap: 12px;
   }
-  .topbar > [data-navigation] {
+  .topbar > [data-mobile] {
     display: grid;
   }
   .header-search {
