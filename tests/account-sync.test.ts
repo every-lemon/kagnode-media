@@ -75,6 +75,12 @@ test("profile linking, local administrator policy and account isolation use mock
       enabled: false,
     });
     assert.equal(result.enabled, false);
+    for (const action of ["updates.state", "updates.check", "updates.apply"]) {
+      await assert.rejects(
+        links.handle("viewer", "Viewer", false, action, { release_id: 42 }),
+        /administrator/,
+      );
+    }
     const count = calls.length;
     assert.equal(
       (await links.state("local-one", "Local name", false)).profile,

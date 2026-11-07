@@ -196,6 +196,108 @@
     };
     polling = setTimeout(tick, 5000);
   }
+  function updatePanel(parent) {
+    const panel = el("section", "", "kn-account-admin kn-update-panel");
+    const status = el("p", "Loading update status…");
+    status.setAttribute("role", "status");
+    const actions = el("div", "", "kn-account-actions");
+    panel.append(el("h3", "Application updates"), status, actions);
+    parent.append(panel);
+    let busy = false,
+      timer = null;
+    async function load(action = "state", data = {}) {
+      if (busy || !panel.isConnected) return;
+      busy = true;
+      clearTimeout(timer);
+      actions.querySelectorAll("button").forEach((b) => (b.disabled = true));
+      status.textContent =
+        action === "check"
+          ? "Checking GitHub…"
+          : action === "apply"
+            ? "Starting update…"
+            : "Loading update status…";
+      try {
+        let value = await request("updates." + action, data);
+        if (action !== "state") value = await request("updates.state");
+        if (!panel.isConnected) return;
+        actions.replaceChildren();
+        if (!value.enabled) {
+          status.textContent = value.message;
+          return;
+        }
+        const phase = value.operation?.phase;
+        const running = ["downloading", "preparing", "queued"].includes(phase);
+        status.textContent =
+          `${value.installed ? "Installed " + value.installed : "Not managed by KagNode CLI"} · ${value.channel || "stable"} channel` +
+          (value.operation?.message ? "\n" + value.operation.message : "");
+        const button = (label, fn) => {
+          const b = el("button", label, "kn-account-button");
+          b.type = "button";
+          b.disabled = running;
+          b.addEventListener("click", fn);
+          actions.append(b);
+          return b;
+        };
+        button("Check for updates", () => load("check"));
+        const candidate = value.candidate;
+        if (candidate?.changed && candidate.release_id) {
+          actions.append(
+            el(
+              "p",
+              `${candidate.version}${candidate.prerelease ? " · Preview" : ""}`,
+            ),
+          );
+          if (
+            ["native", "signed-native"].includes(value.kind) &&
+            !value.can_apply
+          ) {
+            actions.append(
+              el(
+                "p",
+                "Use the verified native updater for this release. Panel checks do not change networking, boot images, or mail configuration.",
+              ),
+            );
+          } else if (value.installed)
+            button("Review update", () => {
+              const dialog = el("dialog", "", "kn-update-dialog");
+              dialog.append(
+                el("h2", "Update this application?"),
+                el(
+                  "p",
+                  `Install ${candidate.version} from its GitHub release. The service may briefly stop. Previous source and a pre-update backup are retained.`,
+                ),
+              );
+              const cancel = el("button", "Cancel", "kn-account-button"),
+                apply = el("button", "Install update", "kn-account-button");
+              cancel.type = apply.type = "button";
+              cancel.addEventListener("click", () => dialog.close());
+              apply.addEventListener("click", () => {
+                dialog.close();
+                load("apply", { release_id: candidate.release_id });
+              });
+              dialog.append(cancel, apply);
+              dialog.addEventListener("close", () => dialog.remove(), {
+                once: true,
+              });
+              document.body.append(dialog);
+              dialog.showModal();
+              cancel.focus();
+            });
+        } else if (candidate && candidate.changed === false)
+          actions.append(el("p", "This source release is already installed."));
+        if (running) timer = setTimeout(() => load(), 3000);
+      } catch (error) {
+        status.textContent = error.message;
+        const retry = el("button", "Retry", "kn-account-button");
+        retry.type = "button";
+        retry.addEventListener("click", () => load());
+        actions.replaceChildren(retry);
+      } finally {
+        busy = false;
+      }
+    }
+    load();
+  }
   function render() {
     if (!current) return;
     for (const panel of panels) {
@@ -257,6 +359,7 @@
           );
         }
         panel.append(settings);
+        updatePanel(panel);
       }
     }
   }

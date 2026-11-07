@@ -1,3 +1,4 @@
+import { manageUpdate } from "./ecosystem-updates.js";
 import { Store } from "./database.js";
 import { MediaError } from "./errors.js";
 
@@ -321,6 +322,11 @@ export class AccountProfiles {
     action = "state",
     data: any = {},
   ) {
+    if (action.startsWith("updates.")) {
+      if (!admin)
+        throw new MediaError("Local administrator access is required.", 403);
+      return manageUpdate(action.slice(8), data);
+    }
     if (action === "retry_disconnections") {
       if (!admin)
         throw new MediaError("Local administrator access is required.", 403);
