@@ -1,3 +1,4 @@
+import { installCore, managerRequest } from "../vendor/kagnode-core.mjs";
 import { AccountProfiles } from "./account-sync.js";
 import { icon } from "./icons.js";
 import express from "express";
@@ -73,6 +74,13 @@ export function createApp(config: Config, store = new Store(config)) {
       strictTransportSecurity: config.secure ? undefined : false,
     }),
   );
+  installCore(app, {
+    appId: "media",
+    context: (q) => ({
+      authenticated: !!q.mediaUser,
+      subject: q.mediaUser?.id || "",
+    }),
+  });
   app.get("/healthz", (_q, r) => {
     store.one("SELECT 1");
     r.json({ ok: true, service: "kagnode-media", version: "0.1.0-preview.1" });
@@ -141,6 +149,31 @@ export function createApp(config: Config, store = new Store(config)) {
         ),
       );
     });
+  app.all("/api/v1/kagnode-core/:action", async (q, r) => {
+    const user = requireUser(q);
+    if (user.role !== "admin")
+      return r
+        .status(403)
+        .json({ error: "Local administrator access is required." });
+    if (
+      !["GET", "POST"].includes(q.method) ||
+      (q.method === "GET" && q.params.action !== "status")
+    )
+      return r.sendStatus(405);
+    try {
+      r.json(
+        await managerRequest(
+          "media",
+          String(q.params.action),
+          q.method === "POST" ? q.body : {},
+        ),
+      );
+    } catch (error) {
+      r.status(400).json({
+        error: error instanceof Error ? error.message : "Core request failed.",
+      });
+    }
+  });
   const asset = (name: string) => "/static/" + (assets[name] || name);
   const render = (
     q: Request,

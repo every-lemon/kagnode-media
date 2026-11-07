@@ -50,6 +50,8 @@ See [operations and existing setup instructions](docs/OPERATIONS.md) for the ful
 
 ## Configuration and storage
 
+Shared presentation uses [KagNode Core](docs/CORE.md), with a pinned local fallback and reviewed server adapters. Compatible stable UI patches have a separate local-administrator policy.
+
 Originals, databases and worker output stay outside public assets. No processing worker or transcoding is started by the preview packages.
 
 ## Security
