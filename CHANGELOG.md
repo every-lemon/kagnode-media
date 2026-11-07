@@ -1,5 +1,9 @@
 ## Ecosystem update panel — packaging preview 2
 
+## Core integration preview
+
+Shared local UI components, manual animated navigation, natural scrolling rails and icon account menus. Added separate appearance-only account connections and signed UI patch controls. Existing storage, native services and prior release records are retained.
+
 - Add local-administrator update checks, review and progress through KagNode CLI.
 - Keep local permissions, CSRF checks, data paths and native provisioning unchanged.
 - Source preview only; no new hardware qualification or native deployment claim.
