@@ -117,3 +117,25 @@
     display: none;
   }
 }
+
+.kn-update-panel [role="status"] {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.kn-update-dialog {
+  max-width: min(520px, calc(100vw - 32px));
+  padding: 28px;
+  border: 1px solid #586174;
+  border-radius: 20px;
+  color: var(--text, #f0f2f6);
+  background: var(--surface, #171b22);
+}
+.kn-update-dialog::backdrop {
+  background: #0009;
+}
+.kn-update-dialog p {
+  line-height: 1.6;
+}
+.kn-update-dialog button {
+  margin: 8px 8px 0 0;
+}
