@@ -1,5 +1,9 @@
 ## Ecosystem update panel — packaging preview 2
 
+## Update recovery status preview
+
+Show recovery details and metadata filenames in local administration. Suppress unsafe update actions, distinguish live operations from stale progress, preserve native-adapter guidance and clear repaired-cache warnings after a new release check.
+
 ## Account link recovery preview
 
 Resume pending profile links after reload, provide attempt-scoped cancellation and visible retry controls, and ignore late browser responses. Retain failed cleanup of issued profile tokens for administrator retry. Preserve local sign-in, permissions and existing data.
