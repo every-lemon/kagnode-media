@@ -19,3 +19,7 @@ This source preview is validated with isolated and mocked profile requests. Pack
 A pending connection keeps its confirmation code and remaining lifetime after reloading the page or reopening the server-side store. Only that local account can read its pending confirmation details; device and profile credentials are never returned to the browser. Cancel linking stops the current attempt without disconnecting an established profile. If another tab has started a newer attempt, a stale cancellation is rejected.
 
 The panel shows retry controls for failed loads and ignores late responses after a newer action. If issued credentials must be discarded while KagNode is unreachable, their revocation stays in the private retry queue. Local administrators can retry those disconnections from installation settings. Local sign-in, permissions and stored application data remain independent.
+
+## Application update recovery
+
+The local-administration update panel shows recovery details and metadata filenames returned by KagNode CLI. Recovery, an active local operation or `can_apply: false` prevents an install action. A release check may replace a damaged candidate cache; installation state and operation records require administrator review rather than automatic deletion. New managers supply lock-backed `in_progress`; older managers retain phase-based display compatibility. Ordinary users receive no update controls.

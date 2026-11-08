@@ -278,10 +278,36 @@
           return;
         }
         const phase = value.operation?.phase;
-        const running = ["downloading", "preparing", "queued"].includes(phase);
+        const recovery = value.needs_recovery === true;
+        const running =
+          typeof value.in_progress === "boolean"
+            ? value.in_progress
+            : !recovery &&
+              ["downloading", "preparing", "queued"].includes(phase);
+        const installation = value.installed
+          ? (recovery ? "Recorded version " : "Installed ") + value.installed
+          : recovery
+            ? "Installation needs review"
+            : "Not managed by KagNode CLI";
         status.textContent =
-          `${value.installed ? "Installed " + value.installed : "Not managed by KagNode CLI"} · ${value.channel || "stable"} channel` +
-          (value.operation?.message ? "\n" + value.operation.message : "");
+          `${installation} · ${value.channel || "stable"} channel` +
+          (value.operation?.message ? "\n" + value.operation.message : "") +
+          (running ? "\nA local operation is running." : "");
+        if (recovery) {
+          actions.append(
+            el(
+              "p",
+              value.recovery || "Recovery review is required before updating.",
+            ),
+          );
+          const files = (value.metadata_errors || [])
+            .map((error) => error.file)
+            .filter(Boolean);
+          if (files.length)
+            actions.append(
+              el("p", "Metadata needing review: " + files.join(", ")),
+            );
+        }
         const button = (label, fn) => {
           const b = el("button", label, "kn-account-button");
           b.type = "button";
@@ -299,14 +325,15 @@
               `${candidate.version}${candidate.prerelease ? " · Preview" : ""}`,
             ),
           );
-          if (
-            ["native", "signed-native"].includes(value.kind) &&
-            !value.can_apply
-          ) {
+          if (recovery || running) {
+            // Keep the candidate visible without offering an unsafe apply action.
+          } else if (value.can_apply !== true) {
             actions.append(
               el(
                 "p",
-                "Use the verified native updater for this release. Panel checks do not change networking, boot images, or mail configuration.",
+                ["native", "signed-native"].includes(value.kind)
+                  ? "Use the verified native updater for this release. Panel checks do not change networking, boot images, or mail configuration."
+                  : "Updates are not available for this installation. Review its local configuration before continuing.",
               ),
             );
           } else if (value.installed)
@@ -335,7 +362,12 @@
               dialog.showModal();
               cancel.focus();
             });
-        } else if (candidate && candidate.changed === false)
+        } else if (
+          candidate &&
+          candidate.changed === false &&
+          !recovery &&
+          !running
+        )
           actions.append(el("p", "This source release is already installed."));
         if (running) timer = setTimeout(() => load(), 3000);
       } catch (error) {

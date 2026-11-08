@@ -53,8 +53,28 @@ report = []
 def run_case(browser, engine, app, width, case):
     state = dict(PENDING if case in ["resume", "late-poll"] else BASE)
     counts = {"start": 0, "poll": 0, "cancel": 0, "get": 0}
+    if case.startswith("update-"):
+        state["admin"] = True
     if case == "late-policy":
         state.update(enabled=False, admin=True)
+    update = {
+        "enabled": True,
+        "kind": "python",
+        "installed": "1.0",
+        "channel": "preview",
+        "can_apply": case in ("update-ready", "update-legacy-ready"),
+        "needs_recovery": case in ("update-recovery", "update-cache-repair"),
+        "in_progress": case == "update-running",
+        "operation": {"phase": "preparing"},
+        "candidate": {"version": "1.1", "release_id": 42, "changed": True},
+        "recovery": "Review local metadata before updating.",
+        "metadata_errors": [{"file": "candidate.json"}],
+    }
+    if case == "update-legacy-ready":
+        update.pop("in_progress")
+        update["operation"] = {"phase": "complete"}
+    if case == "update-native":
+        update["kind"] = "native"
     held = []
     hold_refresh = False
     page = browser.new_page(viewport={"width": width, "height": 900})
@@ -85,6 +105,15 @@ def run_case(browser, engine, app, width, case):
             data = r.request.post_data_json
             action = data["action"]
             counts[action] = counts.get(action, 0) + 1
+            if action.startswith("updates."):
+                if action == "updates.check":
+                    update.update(
+                        needs_recovery=False,
+                        metadata_errors=[],
+                        can_apply=True,
+                        operation={"phase": "complete"},
+                    )
+                return r.fulfill(json=update)
             if action == "policy":
                 state.update(LINKED, admin=True)
             if action == "start":
@@ -104,14 +133,14 @@ def run_case(browser, engine, app, width, case):
     page.route("**/*", route)
     page.goto("https://link.test/", wait_until="domcontentloaded")
     page.wait_for_function("!!window.KagNodeAccounts")
-    page.locator("[data-kn-account-settings] h3").wait_for()
+    page.get_by_role("heading", name="KagNode Account", exact=True).wait_for()
     label = f"{engine}/{app}/{width}/{case}"
     if case == "resume":
         if "ABCDE-12345" not in page.locator("[data-kn-account-settings]").inner_text():
             failures.append(label + ": pending code omitted")
         page.reload(wait_until="domcontentloaded")
         page.wait_for_function("!!window.KagNodeAccounts")
-        page.locator("[data-kn-account-settings] h3").wait_for()
+        page.get_by_role("heading", name="KagNode Account", exact=True).wait_for()
         if "ABCDE-12345" not in page.locator("[data-kn-account-settings]").inner_text():
             failures.append(label + ": reload lost pending flow")
         assert counts["start"] == 0
@@ -171,6 +200,36 @@ def run_case(browser, engine, app, width, case):
             "button", name="Turn account sync off", exact=True
         ).count():
             failures.append(label + ": late refresh undid new policy")
+    if case.startswith("update-"):
+        panel = page.locator(".kn-update-panel")
+        panel.get_by_text("1.1", exact=True).wait_for()
+        review = panel.get_by_role("button", name="Review update", exact=True)
+        if case in ("update-recovery", "update-cache-repair"):
+            assert "Review local metadata" in panel.inner_text()
+            assert "candidate.json" in panel.inner_text()
+            assert review.count() == 0
+            if case == "update-cache-repair":
+                panel.get_by_role(
+                    "button", name="Check for updates", exact=True
+                ).click()
+                review.wait_for()
+                assert "Metadata needing review" not in panel.inner_text()
+        elif case in ("update-ready", "update-legacy-ready"):
+            review.click()
+            page.get_by_role("dialog").wait_for()
+            page.get_by_role("button", name="Cancel", exact=True).click()
+            assert page.get_by_role("dialog").count() == 0
+        else:
+            assert review.count() == 0
+            if case == "update-running":
+                assert panel.get_by_role(
+                    "button", name="Check for updates", exact=True
+                ).is_disabled()
+            elif case == "update-native":
+                assert "verified native updater" in panel.inner_text()
+            else:
+                assert "Updates are not available" in panel.inner_text()
+        assert counts.get("updates.apply", 0) == 0
     report.append(
         {
             "engine": engine,
@@ -198,6 +257,16 @@ with sync_playwright() as p:
                         if app == "cli"
                         else ["resume", "initial-error", "late-poll", "late-refresh"]
                     )
+                    if app != "cli":
+                        cases += [
+                            "update-recovery",
+                            "update-blocked",
+                            "update-running",
+                            "update-ready",
+                            "update-cache-repair",
+                            "update-native",
+                            "update-legacy-ready",
+                        ]
                     for case in cases:
                         run_case(browser, engine, app, width, case)
         finally:
