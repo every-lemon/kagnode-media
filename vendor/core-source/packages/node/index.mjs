@@ -164,7 +164,12 @@ export function installCore(
     }
     const send = r.send;
     r.send = function (body) {
-      if (typeof body === "string" && /<head\b/i.test(body)) {
+      const contentType = this.get?.("Content-Type") || "";
+      if (
+        typeof body === "string" &&
+        (!contentType || /^text\/html(?:;|$)/i.test(contentType)) &&
+        /<head\b/i.test(body)
+      ) {
         const c = context(q, r);
         body = inject(body, appId, c);
         this.set(

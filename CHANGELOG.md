@@ -1,5 +1,9 @@
 ## Ecosystem update panel — packaging preview 2
 
+## API response integrity preview
+
+Upgrade the reviewed Core integration to 1.1.5 so literal HTML in media titles/descriptions cannot corrupt JSON API responses. Keep raw file delivery intact and escape the same metadata in HTML pages. Processing and hardware verification remain outside this preview.
+
 ## Shared loading spinner preview
 
 Use KagNode Core 1.0.5 for the shared split-orbit loading mark, with reduced-motion support and existing status/recovery controls retained. This changes web presentation without resetting data or provisioning native services.

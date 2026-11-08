@@ -391,9 +391,7 @@ html[data-kn-core][data-core-collapsed="true"]
     width: calc(
       100% - var(--kn-sidebar-reserved-size, var(--kn-sidebar-size))
     ) !important;
-    transition:
-      margin-left var(--kn-motion) var(--kn-easing),
-      width var(--kn-motion) var(--kn-easing);
+    transition: var(--kn-layout-transition, none);
   }
   html[data-core-shell="active"] :is(#dashboard > .topbar, .kn-ui > .topbar) {
     left: var(--kn-sidebar-reserved-size, var(--kn-sidebar-size)) !important;
@@ -407,9 +405,7 @@ html[data-kn-core][data-core-collapsed="true"]
     width: calc(
       100% - var(--kn-sidebar-reserved-size, var(--kn-sidebar-size))
     ) !important;
-    transition:
-      margin-left var(--kn-motion) var(--kn-easing),
-      width var(--kn-motion) var(--kn-easing);
+    transition: var(--kn-layout-transition, none);
   }
   [data-core-public="true"] .site-navigation .nav-pages {
     display: none !important;
@@ -825,4 +821,10 @@ html[data-core-shell="inactive"]
 }
 html[data-kn-core] .sidebar[data-core-sidebar][hidden] {
   display: none !important;
+}
+
+html[data-core-ready="true"] {
+  --kn-layout-transition:
+    margin-left var(--kn-motion) var(--kn-easing),
+    width var(--kn-motion) var(--kn-easing);
 }
