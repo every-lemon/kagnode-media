@@ -1,5 +1,9 @@
 ## Ecosystem update panel — packaging preview 2
 
+## Account link recovery preview
+
+Resume pending profile links after reload, provide attempt-scoped cancellation and visible retry controls, and ignore late browser responses. Retain failed cleanup of issued profile tokens for administrator retry. Preserve local sign-in, permissions and existing data.
+
 ## Declared Core binding preview
 
 Document the pinned Core baseline explicitly for new server bindings and the reviewed application-upgrade workflow. Existing application data and stable release selections remain unchanged.
