@@ -1,4 +1,5 @@
 [
+  ".github/workflows/account-link.yml",
   ".github/workflows/check.yml",
   ".github/workflows/packaging.yml",
   ".gitignore",
@@ -70,6 +71,7 @@
   "src/uploads.ts",
   "src/worker.ts",
   "tests/account-sync.test.ts",
+  "tests/browser_account_link.py",
   "tests/core-response.test.ts",
   "tests/media.test.ts",
   "tests/test_repository_release.py",

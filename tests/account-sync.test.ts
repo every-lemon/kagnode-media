@@ -206,3 +206,112 @@ test("an in-flight refresh cannot recreate a disconnected local profile", async 
     fs.rmSync(folder, { recursive: true, force: true });
   }
 });
+
+test("pending links resume privately and cancellation rejects stale or in-flight approvals", async () => {
+  const folder = fs.mkdtempSync(
+    path.join(os.tmpdir(), "kagnode-media-link-recovery-"),
+  );
+  const store = new Store(
+    configuration({
+      DATA_DIR: folder,
+      PUBLIC_URL: "http://localhost",
+      NODE_ENV: "test",
+    }),
+  );
+  let cancelOnToken = false;
+  let revokeOffline = false;
+  let attempt = "";
+  const links = new AccountProfiles(
+    store,
+    "http://localhost",
+    async (_method, endpoint) => {
+      if (endpoint === "revoke" && revokeOffline)
+        throw new Error("Issuer offline");
+      if (endpoint === "device")
+        return {
+          device_code: "D".repeat(43),
+          user_code: "ABCDE-12345",
+          verification_uri_complete:
+            "https://nebulacoder.com/account/apps/device?code=ABCDE12345",
+        };
+      if (endpoint === "token") {
+        if (cancelOnToken) {
+          cancelOnToken = false;
+          await links.handle("local-one", "Local", false, "cancel", {
+            attempt_id: attempt,
+          });
+        }
+        return { access_token: "A".repeat(43), refresh_token: "R".repeat(43) };
+      }
+      if (endpoint.startsWith("profile?"))
+        return {
+          issuer: "https://nebulacoder.com",
+          subject: "central-one",
+          name: "KagNode member",
+          photo: "",
+        };
+      return {};
+    },
+  );
+  try {
+    const initial = await links.handle("local-one", "Local", false, "start");
+    const reopened = new AccountProfiles(store, "http://localhost");
+    let state = await reopened.state("local-one", "Local", false);
+    assert.equal(state.pending, true);
+    assert.equal(state.user_code, initial.user_code);
+    assert.equal(state.attempt_id, initial.attempt_id);
+    assert.ok(state.expires_in! > 0 && state.expires_in! <= 600);
+    assert.ok(!JSON.stringify(state).includes("D".repeat(43)));
+    assert.equal(
+      (await reopened.state("other-local", "Other", false)).pending,
+      false,
+    );
+    store.run("UPDATE account_profile_pending SET expires=?", Date.now() - 1);
+    assert.equal(
+      (await reopened.state("local-one", "Local", false)).pending,
+      false,
+    );
+    const latest = await links.handle("local-one", "Local", false, "start");
+    attempt = latest.attempt_id!;
+    await assert.rejects(
+      links.handle("local-one", "Local", false, "cancel", {
+        attempt_id: initial.attempt_id,
+      }),
+      /changed/,
+    );
+    revokeOffline = true;
+    cancelOnToken = true;
+    await assert.rejects(
+      links.handle("local-one", "Local", false, "poll"),
+      /changed/,
+    );
+    assert.equal(
+      (await links.state("local-one", "Local", true)).revocations_pending,
+      1,
+    );
+    revokeOffline = false;
+    await links.handle("admin", "Admin", true, "retry_disconnections");
+    assert.equal(
+      (await links.state("local-one", "Local", true)).revocations_pending,
+      0,
+    );
+    state = await links.state("local-one", "Local", false);
+    assert.equal(state.pending, false);
+    assert.equal(state.connected, false);
+    await links.handle("local-one", "Local", false, "start");
+    await links.handle("local-one", "Local", false, "poll");
+    await assert.rejects(
+      links.handle("local-one", "Local", false, "cancel", {
+        attempt_id: attempt,
+      }),
+      /changed/,
+    );
+    assert.equal(
+      (await links.state("local-one", "Local", false)).connected,
+      true,
+    );
+  } finally {
+    store.close();
+    fs.rmSync(folder, { recursive: true, force: true });
+  }
+});

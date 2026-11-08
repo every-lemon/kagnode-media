@@ -8,7 +8,7 @@ Source preview of self-hosted video, audio, photo and album publishing.
 
 ## Release status
 
-Product source: **0.1.0-preview.1**. Packaging preview: **0.1.0-preview.1.packaging.8**.
+Product source: **0.1.0-preview.1**. Packaging preview: **0.1.0-preview.1.packaging.9**.
 
 Packaging prereleases do not change the latest stable release or establish new hardware or service compatibility. See [verification](docs/VERIFICATION.md) and [changelog](CHANGELOG.md).
 

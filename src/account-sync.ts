@@ -189,15 +189,15 @@ export class AccountProfiles {
       !/^[A-Za-z0-9_-]{40,200}$/.test(result?.refresh_token || "")
     )
       throw new MediaError("Invalid KagNode account token response.", 502);
-    const profile = this.validate(
-      await this.request(
-        "GET",
-        "profile?client_id=kagnode-media",
-        undefined,
-        result.access_token,
-      ),
-    );
     try {
+      const profile = this.validate(
+        await this.request(
+          "GET",
+          "profile?client_id=kagnode-media",
+          undefined,
+          result.access_token,
+        ),
+      );
       this.store.transaction(() => {
         const policy = this.policy();
         if (
@@ -234,7 +234,12 @@ export class AccountProfiles {
         this.store.audit(uid, "account.profile.sync", profile.subject);
       });
     } catch (error) {
-      await this.revoke(result.refresh_token);
+      this.store.run(
+        "INSERT OR IGNORE INTO account_profile_revocations VALUES(?,?)",
+        result.refresh_token,
+        Date.now(),
+      );
+      await this.flushRevocations(1);
       throw error;
     }
   }
@@ -300,7 +305,30 @@ export class AccountProfiles {
       "SELECT * FROM account_profile_links WHERE local_id=?",
       uid,
     );
+    const connected = !!(enabled && row?.refresh);
+    const pending =
+      enabled && !connected
+        ? this.store.one(
+            "SELECT user_code,verification,expires,interval,generation FROM account_profile_pending WHERE local_id=? AND expires>? AND generation=?",
+            uid,
+            Date.now(),
+            this.stamp(uid),
+          )
+        : null;
     return {
+      pending: !!pending,
+      ...(pending
+        ? {
+            user_code: pending.user_code,
+            verification_uri: pending.verification,
+            expires_in: Math.max(
+              1,
+              Math.ceil((pending.expires - Date.now()) / 1000),
+            ),
+            interval: pending.interval / 1000,
+            attempt_id: pending.generation,
+          }
+        : {}),
       revocations_pending: admin
         ? this.store.one(
             "SELECT COUNT(*) count FROM account_profile_revocations",
@@ -308,7 +336,7 @@ export class AccountProfiles {
         : 0,
       enabled,
       admin,
-      connected: !!(enabled && row?.refresh),
+      connected,
       profile: enabled && row ? JSON.parse(row.profile) : null,
       local_name: name,
       warning,
@@ -322,6 +350,30 @@ export class AccountProfiles {
     action = "state",
     data: any = {},
   ) {
+    if (action === "cancel") {
+      this.store.transaction(() => {
+        const pending = this.store.one(
+          "SELECT generation FROM account_profile_pending WHERE local_id=?",
+          uid,
+        );
+        if (
+          !pending ||
+          pending.generation !== data.attempt_id ||
+          pending.generation !== this.stamp(uid)
+        )
+          throw new MediaError(
+            "The account-link attempt changed. Reload its status.",
+            409,
+          );
+        this.bump(uid);
+        this.store.run(
+          "DELETE FROM account_profile_pending WHERE local_id=?",
+          uid,
+        );
+        this.store.audit(uid, "account.profile.cancel", uid);
+      });
+      return this.state(uid, name, admin, false);
+    }
     if (action.startsWith("updates.")) {
       if (!admin)
         throw new MediaError("Local administrator access is required.", 403);
@@ -435,12 +487,7 @@ export class AccountProfiles {
           expectedStamp,
         );
       });
-      return {
-        pending: true,
-        user_code: result.user_code,
-        verification_uri: result.verification_uri_complete,
-        interval: 5,
-      };
+      return this.state(uid, name, admin, false);
     }
     if (action === "poll") {
       const row = this.store.transaction(() => {
@@ -476,9 +523,10 @@ export class AccountProfiles {
         const interval =
           row.interval + (result.error === "slow_down" ? 5000 : 0);
         this.store.run(
-          "UPDATE account_profile_pending SET interval=? WHERE local_id=?",
+          "UPDATE account_profile_pending SET interval=? WHERE local_id=? AND generation=?",
           interval,
           uid,
+          row.generation,
         );
         return { pending: true, interval: interval / 1000 };
       }
@@ -489,8 +537,9 @@ export class AccountProfiles {
         );
       await this.save(uid, result, String(row.generation));
       this.store.run(
-        "DELETE FROM account_profile_pending WHERE local_id=?",
+        "DELETE FROM account_profile_pending WHERE local_id=? AND generation=?",
         uid,
+        row.generation,
       );
       return this.state(uid, name, admin, false);
     }
