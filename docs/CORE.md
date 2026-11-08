@@ -10,4 +10,8 @@ This preview upgrades web presentation. It does not qualify native services, cod
 
 ## Shared loading mark
 
-Core 1.0.5 supplies KagNode’s split-orbit spinner. The canonical logo stays still while its separated accent orbits. Reduced-motion settings stop the animation. Existing loading labels, retries and dismissal controls remain available. The server serves the spinner and artwork locally; no browser Core connection to GitHub is required.
+Core 1.1.5 supplies KagNode’s split-orbit spinner. The canonical logo stays still while its separated accent orbits. Reduced-motion settings stop the animation. Existing loading labels, retries and dismissal controls remain available. The server serves the spinner and artwork locally; no browser Core connection to GitHub is required.
+
+## Reviewed adapter upgrade
+
+This preview explicitly upgrades the local adapter and fallback to Core 1.1.5. HTML pages receive shared components; JSON and plain-text responses remain byte-preserved even when media metadata contains literal HTML syntax. The compatible automatic UI range is now 1.1.x. Backend helpers still require review, and an automatic UI patch cannot update this server adapter. No deployment or native media processing is part of this change.
