@@ -1,5 +1,9 @@
 ## Ecosystem update panel — packaging preview 2
 
+## Shared loading spinner preview
+
+Use KagNode Core 1.0.5 for the shared split-orbit loading mark, with reduced-motion support and existing status/recovery controls retained. This changes web presentation without resetting data or provisioning native services.
+
 ## Shared UI preview 4
 
 - Use the Core mobile drawer and loading overlay exclusively; retain application form confirmation and logout timing. Show the account email inside its popover.

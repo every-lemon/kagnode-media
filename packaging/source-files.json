@@ -90,6 +90,8 @@
   "vendor/core-source/web/core.css",
   "vendor/core-source/web/core.js",
   "vendor/core-source/web/dashboard.css",
+  "vendor/core-source/web/loading.css",
+  "vendor/core-source/web/loading.js",
   "vendor/core-source/web/scroll.js",
   "vendor/core-source/web/theme.js",
   "vendor/core-source/web/toc.js",
