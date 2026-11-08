@@ -1,5 +1,9 @@
 ## Ecosystem update panel — packaging preview 2
 
+## Declared Core binding preview
+
+Document the pinned Core baseline explicitly for new server bindings and the reviewed application-upgrade workflow. Existing application data and stable release selections remain unchanged.
+
 ## API response integrity preview
 
 Upgrade the reviewed Core integration to 1.1.5 so literal HTML in media titles/descriptions cannot corrupt JSON API responses. Keep raw file delivery intact and escape the same metadata in HTML pages. Processing and hardware verification remain outside this preview.

@@ -4,7 +4,7 @@ This application uses [KagNode Core](https://github.com/every-lemon/kagnode-core
 
 Application servers serve Core assets from their own origin. Browsers never fetch Core scripts from GitHub. Local accounts retain local sign-in and permissions. Appearance can connect directly to KagNode Account using a separate browser-only appearance grant; profile linking remains a distinct administrator setting.
 
-Only stable compatible UI patches may install automatically. Backend helpers, prereleases, minor/major versions and application updates require review. A Core patch cannot restart a service or run a backend hook. The local administrator sees status, update policy and rollback in settings. Use `sudo kagnode core bind media --user SERVICE_USER` to bind the service and run the manager described in [Core operations](https://github.com/every-lemon/kagnode-core/blob/main/docs/OPERATIONS.md). Ordinary users cannot manage updates.
+Only stable compatible UI patches may install automatically. Backend helpers, prereleases, minor/major versions and application updates require review. A Core patch cannot restart a service or run a backend hook. The local administrator sees status, update policy and rollback in settings. Use `sudo kagnode core bind media --user SERVICE_USER --baseline 1.1.5` to bind the service and run the manager described in [Core operations](https://github.com/every-lemon/kagnode-core/blob/main/docs/OPERATIONS.md). Ordinary users cannot manage updates.
 
 This preview upgrades web presentation. It does not qualify native services, codecs, HTTP Boot images, network hardware or a new stable application release. Keep application databases and deployment configuration in their existing locations. No data reset or native provisioning is part of Core integration.
 
@@ -15,3 +15,7 @@ Core 1.1.5 supplies KagNode’s split-orbit spinner. The canonical logo stays st
 ## Reviewed adapter upgrade
 
 This preview explicitly upgrades the local adapter and fallback to Core 1.1.5. HTML pages receive shared components; JSON and plain-text responses remain byte-preserved even when media metadata contains literal HTML syntax. The compatible automatic UI range is now 1.1.x. Backend helpers still require review, and an automatic UI patch cannot update this server adapter. No deployment or native media processing is part of this change.
+
+## Binding and reviewed application upgrades
+
+The explicit baseline above matches this source’s pinned fallback; do not rely on an older manager’s implicit 1.0.x default. With Core manager 1.2.0 or newer, prefer `--lock-file /path/to/app/core.lock.json` instead of `--baseline` to read the adapter version and automatic-update preference from the reviewed application declaration. Existing bindings are retained by `bind`. Follow the [reviewed application upgrade workflow](https://github.com/every-lemon/kagnode-core/blob/main/docs/OPERATIONS.md#reviewed-application-upgrades) to adopt a changed baseline explicitly after verifying current UI rollback assets and retaining the app’s source/data backup. Web UI patch controls cannot perform that minor-version adoption.
