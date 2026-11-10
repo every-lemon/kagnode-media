@@ -25,6 +25,22 @@
     return value;
   }
   window.KagNodeMedia = { request, csrf };
+  window.KagNodeLoginHost = {
+    state: () => ({
+      enabled: !!document.querySelector("[data-core-login-provider]"),
+    }),
+    request: (action, data) =>
+      request("/api/v1/kagnode-login", {
+        method: "POST",
+        body: JSON.stringify({ action, ...data }),
+      }),
+    complete: (result) => {
+      if (result.continuation !== "signed_in" || result.redirect !== "/account")
+        throw Error("Invalid sign-in continuation.");
+      location.assign("/account");
+    },
+  };
+  window.KagNodeLogin?.refresh();
   const approved = new WeakSet(),
     dialog = $("[data-confirm-dialog]");
   let pending;

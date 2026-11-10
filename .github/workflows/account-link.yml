@@ -22,7 +22,16 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install playwright==1.58.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24.22.1"
+      - run: npm ci
+      - run: npm run build
       - run: playwright install --with-deps ${{ matrix.engine }}
       - run: python tests/browser_account_link.py
+        env:
+          KAGNODE_BROWSER_ENGINE: ${{ matrix.engine }}
+      - name: Local and KagNode sign-in journeys
+        run: python tests/browser_provider.py
         env:
           KAGNODE_BROWSER_ENGINE: ${{ matrix.engine }}

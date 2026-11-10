@@ -83,7 +83,7 @@ export function createApp(config: Config, store = new Store(config)) {
   });
   app.get("/healthz", (_q, r) => {
     store.one("SELECT 1");
-    r.json({ ok: true, service: "kagnode-media", version: "0.1.0-preview.1" });
+    r.json({ ok: true, service: "kagnode-media", version: "0.1.0-preview.2" });
   });
   app.use((q, r, next) => {
     if (q.get("Host") !== new URL(config.origin).host) return r.sendStatus(421);
@@ -129,6 +129,34 @@ export function createApp(config: Config, store = new Store(config)) {
     ["GET", "HEAD"].includes(q.method) ? next() : writes(q, r, next),
   );
   const accountProfiles = new AccountProfiles(store, config.origin);
+  app.locals.accountProfiles = accountProfiles;
+  app.post(
+    "/api/v1/kagnode-login",
+    (q, r, next) =>
+      q.body?.action === "start" ? authLimit(q, r, next) : next(),
+    async (q, r) => {
+      if (q.mediaUser) throw new MediaError("You are already signed in.", 409);
+      const attempt = String(q.body.attempt_id || "");
+      const result = await accountProfiles.login(
+        String(r.locals.csrf),
+        String(q.body.action || ""),
+        attempt,
+      );
+      if (result.authorized) {
+        const user = accountProfiles.finishLogin(
+          String(r.locals.csrf),
+          attempt,
+        );
+        signIn(store, r, user);
+        return r.json({
+          authorized: true,
+          continuation: "signed_in",
+          redirect: "/account",
+        });
+      }
+      r.json(result);
+    },
+  );
   app
     .route("/api/v1/kagnode-account")
     .get(async (q, r) => {
@@ -184,6 +212,7 @@ export function createApp(config: Config, store = new Store(config)) {
   ) =>
     r.render("layout", {
       page,
+      providerEnabled: accountProfiles.loginEnabled(),
       title,
       user: q.mediaUser || null,
       csrf: r.locals.csrf || "",
@@ -284,7 +313,10 @@ export function createApp(config: Config, store = new Store(config)) {
     authLimit,
     api(async (q, r) => {
       const user = requireUser(q);
-      if (!(await verifyPassword(q.body.current, user.password)))
+      if (
+        user.password !== "kagnode-provider" &&
+        !(await verifyPassword(q.body.current, user.password))
+      )
         throw new MediaError("Current password was not accepted.", 403);
       const hash = await passwordHash(q.body.password);
       store.transaction(() => {

@@ -75,7 +75,7 @@
             : "Collapse sidebar",
       );
     }
-    window.KagNodeScroll?.refresh();
+    window.KagNodeScroll?.refresh(sidebar);
   }
   function releasePreview() {
     clearTimeout(hoverTimer);
@@ -173,6 +173,7 @@
         groups.get(d)?.motion?.cancel();
         groups.delete(d);
         d.open = false;
+        $("summary", d)?.setAttribute("aria-expanded", "false");
         if (d.children[1]) {
           d.children[1].style.removeProperty("height");
           d.children[1].style.removeProperty("overflow");
@@ -182,7 +183,7 @@
     document.dispatchEvent(
       new CustomEvent("kagnode:sidebar", { detail: { collapsed: !!value } }),
     );
-    window.KagNodeScroll?.refresh();
+    window.KagNodeScroll?.refresh(sidebar);
   }
   function drawer(open, restore = true) {
     root.dataset.coreDrawer = String(open);
@@ -307,7 +308,7 @@
       content.style.removeProperty("height");
       content.style.removeProperty("overflow");
       groups.delete(d);
-      window.KagNodeScroll?.refresh();
+      window.KagNodeScroll?.refresh(d);
     };
     if (reduce.matches) return finish();
     content.style.overflow = "hidden";
@@ -394,8 +395,19 @@
         $("[data-kn-account-name]")?.textContent.trim() ||
         config.name ||
         "Your account";
-      $(".kn-core-account-identity strong", menu).textContent = name;
+      const identity = $(".kn-core-account-identity", menu);
+      $("strong", identity).textContent = name;
+      let email = $("small", identity);
+      if (config.email && !email) {
+        email = element("small");
+        identity.append(email);
+      }
+      if (email) {
+        email.textContent = config.email || "";
+        email.hidden = !config.email;
+      }
     }
+    if (!menu.id) menu.id = "kn-core-account-menu-content";
     menu.dataset.coreAccountMenu = "";
     menu.hidden = false;
     menu.classList.remove("hidden");
@@ -406,9 +418,11 @@
     button.setAttribute("aria-controls", menu.id);
     button.setAttribute("aria-expanded", "true");
     const box = button.getBoundingClientRect();
+    const maximumRight = Math.max(12, innerWidth - menu.offsetWidth - 12);
     Object.assign(menu.style, {
       top: Math.min(innerHeight - 100, box.bottom + 8) + "px",
-      right: Math.max(12, innerWidth - box.right) + "px",
+      right:
+        Math.min(maximumRight, Math.max(12, innerWidth - box.right)) + "px",
     });
     if (!reduce.matches)
       menu.animate(
@@ -436,8 +450,10 @@
       document.querySelector("dialog[open]")
     )
       drawer(false, false);
-    if (previewExpanded && document.querySelector("dialog[open]"))
-      preview(false);
+    if (document.querySelector("dialog[open]")) {
+      if (previewExpanded) preview(false);
+      closeAccount();
+    }
     if (sidebar?.closest("[hidden]") && root.dataset.coreDrawer === "true")
       drawer(false);
     all(
@@ -637,7 +653,10 @@
       }
     }
     if (popup && ["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
-      const items = all("a[href],button:not(:disabled)", popup);
+      const items = all("a[href],button:not(:disabled)", popup).filter(
+        (item) =>
+          !item.closest("[hidden],[inert]") && item.getClientRects().length,
+      );
       e.preventDefault();
       const i = items.indexOf(document.activeElement);
       items[
@@ -667,6 +686,9 @@
     if (popup && !popup.contains(e.target) && e.target !== accountTrigger)
       closeAccount();
   });
+  // Pointer events inside embedded documents do not reach this document.
+  // Dismiss without taking focus back from the frame or another window.
+  addEventListener("blur", () => closeAccount());
   let layoutWidth = innerWidth;
   addEventListener("resize", () => {
     if (innerWidth === layoutWidth) {
@@ -756,15 +778,16 @@
     },
     refresh: normalize,
     setSession(value) {
+      const old = window.KagNodeTheme?.session;
+      const sameSubject = old?.subject === String(value.subject || "");
       if (!value.authenticated && root.dataset.coreDrawer === "true")
         drawer(false);
       config.name = value.authenticated
-        ? String(value.name || config.name || "")
+        ? String(value.name || (sameSubject ? config.name : "") || "")
         : "";
       config.email = value.authenticated
-        ? String(value.email || config.email || "")
+        ? String(value.email || (sameSubject ? config.email : "") || "")
         : "";
-      const old = window.KagNodeTheme?.session;
       if (
         old?.authenticated !== !!value.authenticated ||
         old?.subject !== String(value.subject || "")

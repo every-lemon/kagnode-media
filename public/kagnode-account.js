@@ -64,7 +64,10 @@
     return result;
   }
   async function request(action = "state", data = {}) {
-    if (app === "mail" && typeof window.KagNodeAccountRequest === "function")
+    if (
+      ["mail", "authenticator"].includes(app) &&
+      typeof window.KagNodeAccountRequest === "function"
+    )
       return window.KagNodeAccountRequest(action, data);
     const response = await fetch(endpoint, {
       method: action === "state" ? "GET" : "POST",
@@ -399,7 +402,7 @@
         el("h3", "KagNode Account"),
         el(
           "p",
-          "Link your display name and photo. Local sign-in, email addresses and permissions stay under this application’s control.",
+          "Connect your KagNode identity and sync your name, photo, and verified contact email. Local login addresses and permissions stay under this application’s control.",
         ),
       );
       const status = el("p", "", "kn-account-status");
@@ -412,6 +415,9 @@
       else if (current.connected) {
         actions.append(
           el("p", "Linked as " + (current.profile?.name || "KagNode member")),
+          ...(current.profile?.email_verified && current.profile?.email
+            ? [el("p", "KagNode contact email: " + current.profile.email)]
+            : []),
           button("Refresh profile", "refresh", panel),
           button("Disconnect profile", "disconnect", panel),
         );
@@ -426,7 +432,7 @@
           el("strong", "Installation settings"),
           el(
             "p",
-            "This control belongs to your local application administrator. Disabling sync disconnects linked profiles and keeps local accounts available.",
+            "This control belongs to your local application administrator. Turning it off disconnects profiles and disables KagNode sign-in. Local sign-in stays available.",
           ),
         );
         const toggle = button(

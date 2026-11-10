@@ -8,6 +8,7 @@ import fcntl
 import hashlib
 import http.server
 import json
+import logging
 import os
 from pathlib import Path, PurePosixPath
 import pwd
@@ -17,6 +18,7 @@ import shutil
 import signal
 import socket
 import socketserver
+import stat
 import struct
 import subprocess
 import tarfile
@@ -33,6 +35,43 @@ LIMIT = 64 * 1024 * 1024
 
 class OperationBusy(ValueError):
     """A manual or background Core mutation already holds the operation lock."""
+
+
+@contextlib.contextmanager
+def _lock_descriptor(path):
+    """Open a stable regular control without waiting on a corrupted FIFO."""
+
+    def validate(info):
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_nlink != 1
+            or info.st_uid != os.geteuid()
+            or info.st_mode & 0o022
+        ):
+            raise ValueError("Unsafe Core lock")
+
+    try:
+        before = path.lstat()
+    except FileNotFoundError:
+        before = None
+    if before is not None:
+        validate(before)
+    descriptor = os.open(
+        path,
+        os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+        0o600,
+    )
+    try:
+        current = os.fstat(descriptor)
+        validate(current)
+        if before is not None and (before.st_dev, before.st_ino) != (
+            current.st_dev,
+            current.st_ino,
+        ):
+            raise ValueError("Core lock changed while opening")
+        yield descriptor
+    finally:
+        os.close(descriptor)
 
 
 def version(value):
@@ -197,6 +236,45 @@ def validate_manifest(value):
     return value
 
 
+def application_lock(path, app):
+    """Read reviewed application metadata; it never supplies download locations."""
+    path = Path(path)
+    if path.is_symlink():
+        raise ValueError("Application Core declaration cannot be a symlink")
+    with os.fdopen(
+        os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb"
+    ) as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError("Application Core declaration must be a regular file")
+        raw = stream.read(16385)
+    if len(raw) > 16384:
+        raise ValueError("Application Core declaration is too large")
+    value = json.loads(raw)
+    if not isinstance(value, dict):
+        raise ValueError("Application Core declaration must be an object")
+    baseline = value.get("baseline")
+    parsed = version(baseline)
+    version(value.get("adapter"))
+    if (
+        type(value.get("schema")) is not int
+        or value["schema"] != 1
+        or value.get("repository") != REPOSITORY
+        or value.get("application", app) != app
+        or type(value.get("ui_api")) is not int
+        or value["ui_api"] != 1
+        or value.get("patch_range") != f"{parsed[0]}.{parsed[1]}.x"
+        or type(value.get("automatic_ui_patches")) is not bool
+        or value.get("backend_updates") != "reviewed"
+        or not re.fullmatch(r"[a-f0-9]{40}", str(value.get("source_commit", "")))
+        or not re.fullmatch(
+            r"[a-f0-9]{64}", str(value.get("fallback_manifest_sha256", ""))
+        )
+    ):
+        raise ValueError("Invalid or incompatible application Core declaration")
+    return value, hashlib.sha256(raw).hexdigest()
+
+
 class Manager:
     def __init__(self, root="/srv/kagnode/core", trusted=True):
         self.root = Path(root)
@@ -235,35 +313,53 @@ class Manager:
     @contextlib.contextmanager
     def lock(self):
         self.ensure()
-        target = self.root / ".operation.lock"
-        if target.is_symlink():
-            raise ValueError("Unsafe Core lock")
-        with target.open("a") as stream:
+        with _lock_descriptor(self.root / ".operation.lock") as descriptor:
             try:
-                fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
                 raise OperationBusy("Another Core operation is running")
             yield
 
-    def bind(self, name, username, baseline="1.0.0"):
+    def bind(self, name, username, baseline=None, lock_file=None):
         with self.lock():
+            self.app(name)
+            if (baseline is None) == (lock_file is None):
+                raise ValueError(
+                    "Choose an explicit baseline or application declaration"
+                )
+            declaration, declaration_sha = (
+                application_lock(lock_file, name)
+                if lock_file is not None
+                else (None, None)
+            )
+            baseline = declaration["baseline"] if declaration else baseline
             version(baseline)
             account = pwd.getpwnam(username)
             path = self.app(name)
+            if (path / "state.json").exists():
+                raise ValueError(
+                    "Existing Core binding retained; review an adopt operation for application upgrades"
+                )
             path.mkdir(exist_ok=True, mode=0o755)
             path.chmod(0o755)
-            if (path / "state.json").exists():
-                raise ValueError("Existing Core binding retained")
             state = {
                 "version": baseline,
                 "baseline": baseline,
-                "adapter": "1.0.0",
-                "automatic": True,
+                "adapter": declaration["adapter"] if declaration else baseline,
+                "automatic": declaration["automatic_ui_patches"]
+                if declaration
+                else True,
                 "uid": account.pw_uid,
                 "gid": account.pw_gid,
                 "previous": None,
                 "last_check": 0,
             }
+            if declaration:
+                state.update(
+                    declaration_sha256=declaration_sha,
+                    source_commit=declaration["source_commit"],
+                    fallback_manifest_sha256=declaration["fallback_manifest_sha256"],
+                )
             atomic(path / "state.json", state)
             return self.status(name)
 
@@ -275,19 +371,103 @@ class Manager:
         return value
 
     def status(self, name):
+        # The lock, not a timestamp or a reusable PID, proves whether a writer
+        # is still alive. Nested status calls inside a mutation simply skip.
+        if (not self.trusted or os.geteuid() == 0) and read(
+            self.app(name) / "operation.json", {}
+        ).get("phase") == "downloading":
+            try:
+                with self.lock():
+                    self._recover_operation(name)
+            except OperationBusy:
+                pass
         state = self.state(name)
-        return {
+        result = {
             "enabled": True,
             **{k: v for k, v in state.items() if k not in ("uid", "gid")},
             "candidate": read(self.app(name) / "candidate.json"),
             "operation": read(self.app(name) / "operation.json", {}),
         }
+        if result["operation"].get("phase") == "interrupted":
+            result["message"] = result["operation"]["message"]
+        elif (
+            self.trusted
+            and os.geteuid() != 0
+            and result["operation"].get("phase") == "downloading"
+        ):
+            result["operation"] = {
+                **result["operation"],
+                "phase": "verification-required",
+                "message": "Run privileged Core status to verify whether this recorded operation is still active.",
+            }
+        return result
+
+    def _cleanup_staging(self):
+        """Only remove our marked scratch while holding the global lock."""
+        for path in (self.root / "releases").glob(".stage-*"):
+            marker = path / ".kagnode-stage.json"
+            if path.is_symlink() or not path.is_dir() or marker.is_symlink():
+                continue
+            try:
+                owned = read(marker)
+            except (OSError, ValueError):
+                continue
+            if owned == {"schema": 1, "kind": "ui-cache", "root": str(self.root)}:
+                shutil.rmtree(path)
+
+    def _recover_operation(self, name):
+        """Reconcile an abandoned journal; never activate or rewrite UI state."""
+        operation = self.app(name) / "operation.json"
+        pending = read(operation, {})
+        if pending.get("phase") != "downloading":
+            return
+        state = self.state(name)
+        complete = False
+        adoption_committed = pending.get("action") != "adopt" or (
+            state.get("baseline") == pending.get("version")
+            and state.get("declaration_sha256") == pending.get("declaration_sha256")
+        )
+        if pending.get("version") == state["version"] and adoption_committed:
+            try:
+                self._cached_version(state["version"])
+                complete = True
+            except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+                pass
+        self._cleanup_staging()
+        if complete:
+            candidate_path = self.app(name) / "candidate.json"
+            candidate = read(candidate_path)
+            if candidate and candidate.get("version") == state["version"]:
+                atomic(candidate_path, {**candidate, "changed": False})
+        atomic(
+            operation,
+            {
+                **pending,
+                "phase": "complete" if complete else "interrupted",
+                "recovered": True,
+                "recovered_at": int(time.time()),
+                "message": "Current Core UI verified after an interrupted operation. Services were not restarted."
+                if complete
+                else "Core update was interrupted. Current UI is retained; check for updates and retry, or repeat the reviewed baseline adoption.",
+            },
+        )
+
+    def recover_pending(self):
+        try:
+            with self.lock():
+                for path in (self.root / "apps").glob("*/state.json"):
+                    self._recover_operation(path.parent.name)
+                self._cleanup_staging()
+        except OperationBusy:
+            # An independently started updater owns its journal and scratch.
+            pass
 
     def check(self, name):
         with self.lock():
             return self._check(name)
 
     def _check(self, name):
+        self._recover_operation(name)
         state = self.state(name)
         releases = json.loads(
             fetch(
@@ -310,32 +490,11 @@ class Manager:
             assets = {item["name"]: item for item in release.get("assets", [])}
             if not {"core-manifest.json", "core-manifest.sig"} <= assets.keys():
                 continue
-            choices.append((parsed, release, assets))
+            choices.append((parsed, release))
         candidate = None
-        for _, release, assets in sorted(choices, key=lambda x: x[0], reverse=True):
-            raw = fetch(assets["core-manifest.json"]["browser_download_url"])
-            signature = fetch(assets["core-manifest.sig"]["browser_download_url"], 1024)
-            verify_signature(raw, signature)
-            manifest = validate_manifest(json.loads(raw))
-            if release["tag_name"] != "v" + manifest["version"]:
-                raise ValueError("Core tag and manifest differ")
-            archive = manifest.get("archive", {})
-            if (
-                archive.get("name") not in assets
-                or not re.fullmatch(r"[a-f0-9]{64}", archive.get("sha256", ""))
-                or type(archive.get("size")) is not int
-                or not 0 < archive["size"] <= LIMIT
-            ):
-                raise ValueError("Invalid signed Core archive")
-            candidate = {
-                "version": manifest["version"],
-                "release_id": release["id"],
-                "manifest": manifest,
-                "signature": base64.b64encode(signature).decode(),
-                "raw": base64.b64encode(raw).decode(),
-                "url": assets[archive["name"]]["browser_download_url"],
-                "changed": manifest["version"] != state["version"],
-            }
+        for _, release in sorted(choices, key=lambda x: x[0], reverse=True):
+            candidate = self._release_candidate(release)
+            candidate["changed"] = candidate["version"] != state["version"]
             break
         atomic(self.app(name) / "candidate.json", candidate)
         atomic(
@@ -344,11 +503,77 @@ class Manager:
         )
         return self.status(name)
 
+    def _release_candidate(self, release):
+        if release.get("draft") or release.get("prerelease"):
+            raise ValueError("Only published stable Core releases can be reviewed")
+        assets = {item["name"]: item for item in release.get("assets", [])}
+        if not {"core-manifest.json", "core-manifest.sig"} <= assets.keys():
+            raise ValueError("Core release has no signed manifest")
+        raw = fetch(assets["core-manifest.json"]["browser_download_url"])
+        signature = fetch(assets["core-manifest.sig"]["browser_download_url"], 1024)
+        verify_signature(raw, signature)
+        manifest = validate_manifest(json.loads(raw))
+        if release["tag_name"] != "v" + manifest["version"]:
+            raise ValueError("Core tag and manifest differ")
+        archive = manifest.get("archive", {})
+        if (
+            archive.get("name") not in assets
+            or not re.fullmatch(r"[a-f0-9]{64}", archive.get("sha256", ""))
+            or type(archive.get("size")) is not int
+            or not 0 < archive["size"] <= LIMIT
+        ):
+            raise ValueError("Invalid signed Core archive")
+        candidate = {
+            "version": manifest["version"],
+            "release_id": release["id"],
+            "manifest": manifest,
+            "signature": base64.b64encode(signature).decode(),
+            "raw": base64.b64encode(raw).decode(),
+            "url": assets[archive["name"]]["browser_download_url"],
+            "changed": True,
+        }
+        return candidate
+
+    def _resolve_version(self, requested):
+        version(requested)
+        release = json.loads(
+            fetch(
+                "https://api.github.com/repos/"
+                + REPOSITORY
+                + "/releases/tags/v"
+                + requested
+            )
+        )
+        if release.get("tag_name") != "v" + requested:
+            raise ValueError("Core release tag does not match the reviewed baseline")
+        return self._release_candidate(release)
+
+    def _cached_version(self, requested):
+        version(requested)
+        target = self.root / "releases" / requested
+        if target.is_symlink():
+            raise ValueError("Unsafe Core release directory")
+        raw = (target / "core-manifest.json").read_bytes()
+        verify_signature(raw, (target / "core-manifest.sig").read_bytes())
+        manifest = validate_manifest(json.loads(raw))
+        if (
+            manifest["version"] != requested
+            or read(target / "manifest.json") != manifest
+        ):
+            raise ValueError("Cached Core manifest does not match its signed version")
+        self.validate_cache(target, manifest)
+        return manifest
+
+    def _ensure_version(self, requested):
+        if (self.root / "releases" / requested).exists():
+            return self._cached_version(requested)
+        return self._cache(self._resolve_version(requested))
+
     def install(self, name, release_id=None):
         with self.lock():
             status = self._check(name)
             candidate = status["candidate"]
-            if not candidate or not candidate["changed"]:
+            if not candidate:
                 return status
             if release_id is not None and (
                 type(release_id) is not int or candidate["release_id"] != release_id
@@ -364,88 +589,27 @@ class Manager:
                 operation,
                 {
                     "phase": "downloading",
+                    "action": "apply",
                     "version": candidate["version"],
                     "at": int(time.time()),
                 },
             )
-            target = self.root / "releases" / candidate["version"]
             try:
-                raw = base64.b64decode(candidate["raw"])
-                verify_signature(raw, base64.b64decode(candidate["signature"]))
-                manifest = validate_manifest(json.loads(raw))
-                if not target.exists():
-                    if shutil.disk_usage(self.root).free < LIMIT * 3:
-                        raise ValueError(
-                            "Not enough space for Core staging and rollback"
-                        )
-                    data = fetch(candidate["url"], LIMIT)
-                    expected = manifest["archive"]
-                    if (
-                        len(data) != expected["size"]
-                        or hashlib.sha256(data).hexdigest() != expected["sha256"]
-                    ):
-                        raise ValueError("Core archive checksum failed")
-                    with tempfile.TemporaryDirectory(
-                        dir=self.root / "releases", prefix=".stage-"
-                    ) as temp:
-                        stage = Path(temp)
-                        archive = stage / "download.tar.gz"
-                        archive.write_bytes(data)
-                        seen = set()
-                        with tarfile.open(archive) as bundle:
-                            for entry in bundle:
-                                name_path = PurePosixPath(entry.name)
-                                if (
-                                    name_path.is_absolute()
-                                    or ".." in name_path.parts
-                                    or len(name_path.parts) != 2
-                                    or name_path.parts[0]
-                                    != "kagnode-core-" + candidate["version"]
-                                    or not entry.isfile()
-                                ):
-                                    raise ValueError(
-                                        "Unsafe Core archive path or file type"
-                                    )
-                                filename = name_path.name
-                                if (
-                                    filename in seen
-                                    or filename not in manifest["files"]
-                                ):
-                                    raise ValueError(
-                                        "Unexpected or duplicate Core archive entry"
-                                    )
-                                seen.add(filename)
-                                expected_file = manifest["files"][filename]
-                                if entry.size != expected_file["size"]:
-                                    raise ValueError("Core file size mismatch")
-                                blob = bundle.extractfile(entry).read()
-                                if (
-                                    hashlib.sha256(blob).hexdigest()
-                                    != expected_file["sha256"]
-                                ):
-                                    raise ValueError("Core asset checksum failed")
-                                (stage / filename).write_bytes(blob)
-                                (stage / filename).chmod(0o644)
-                        if seen != set(manifest["files"]):
-                            raise ValueError("Core archive is incomplete")
-                        archive.unlink()
-                        atomic(stage / "manifest.json", manifest)
-                        (stage / "core-manifest.json").write_bytes(raw)
-                        (stage / "core-manifest.sig").write_bytes(
-                            base64.b64decode(candidate["signature"])
-                        )
-                        stage.chmod(0o755)
-                        os.rename(stage, target)
-                self.validate_cache(target, manifest)
+                self._cache(candidate)
                 atomic(
                     self.app(name) / "state.json",
                     {
                         **state,
                         "version": candidate["version"],
-                        "previous": state["version"],
+                        "previous": state["version"]
+                        if candidate["changed"]
+                        else state.get("previous"),
                         "last_error": "",
                         "updated": int(time.time()),
                     },
+                )
+                atomic(
+                    self.app(name) / "candidate.json", {**candidate, "changed": False}
                 )
                 atomic(
                     operation,
@@ -453,7 +617,9 @@ class Manager:
                         "phase": "complete",
                         "version": candidate["version"],
                         "at": int(time.time()),
-                        "message": "Core UI assets activated. Services were not restarted.",
+                        "message": "Core UI assets activated. Services were not restarted."
+                        if candidate["changed"]
+                        else "Current Core UI verified and cached. Active version is unchanged.",
                     },
                 )
             except Exception as error:
@@ -463,6 +629,79 @@ class Manager:
                 )
                 raise
             return self.status(name)
+
+    def _cache(self, candidate):
+        target = self.root / "releases" / candidate["version"]
+        raw = base64.b64decode(candidate["raw"])
+        verify_signature(raw, base64.b64decode(candidate["signature"]))
+        manifest = validate_manifest(json.loads(raw))
+        if manifest["version"] != candidate["version"]:
+            raise ValueError("Core candidate and signed manifest differ")
+        if target.exists():
+            if self._cached_version(candidate["version"]) != manifest:
+                raise ValueError(
+                    "Cached Core release differs from the reviewed manifest"
+                )
+        else:
+            if shutil.disk_usage(self.root).free < LIMIT * 3:
+                raise ValueError("Not enough space for Core staging and rollback")
+            data = fetch(candidate["url"], LIMIT)
+            expected = manifest["archive"]
+            if (
+                len(data) != expected["size"]
+                or hashlib.sha256(data).hexdigest() != expected["sha256"]
+            ):
+                raise ValueError("Core archive checksum failed")
+            with tempfile.TemporaryDirectory(
+                dir=self.root / "releases", prefix=".stage-"
+            ) as temp:
+                stage = Path(temp)
+                atomic(
+                    stage / ".kagnode-stage.json",
+                    {"schema": 1, "kind": "ui-cache", "root": str(self.root)},
+                )
+                archive = stage / "download.tar.gz"
+                archive.write_bytes(data)
+                seen = set()
+                with tarfile.open(archive) as bundle:
+                    for entry in bundle:
+                        name_path = PurePosixPath(entry.name)
+                        if (
+                            name_path.is_absolute()
+                            or ".." in name_path.parts
+                            or len(name_path.parts) != 2
+                            or name_path.parts[0]
+                            != "kagnode-core-" + candidate["version"]
+                            or not entry.isfile()
+                        ):
+                            raise ValueError("Unsafe Core archive path or file type")
+                        filename = name_path.name
+                        if filename in seen or filename not in manifest["files"]:
+                            raise ValueError(
+                                "Unexpected or duplicate Core archive entry"
+                            )
+                        seen.add(filename)
+                        expected_file = manifest["files"][filename]
+                        if entry.size != expected_file["size"]:
+                            raise ValueError("Core file size mismatch")
+                        blob = bundle.extractfile(entry).read()
+                        if hashlib.sha256(blob).hexdigest() != expected_file["sha256"]:
+                            raise ValueError("Core asset checksum failed")
+                        (stage / filename).write_bytes(blob)
+                        (stage / filename).chmod(0o644)
+                if seen != set(manifest["files"]):
+                    raise ValueError("Core archive is incomplete")
+                archive.unlink()
+                atomic(stage / "manifest.json", manifest)
+                (stage / "core-manifest.json").write_bytes(raw)
+                (stage / "core-manifest.sig").write_bytes(
+                    base64.b64decode(candidate["signature"])
+                )
+                stage.chmod(0o755)
+                (stage / ".kagnode-stage.json").unlink()
+                os.rename(stage, target)
+        self.validate_cache(target, manifest)
+        return manifest
 
     def validate_cache(self, target, manifest):
         if target.is_symlink():
@@ -487,6 +726,91 @@ class Manager:
             )
         return self.status(name)
 
+    def adopt(self, name, lock_file, expected_baseline):
+        """Root-reviewed application upgrade; deliberately unavailable over sockets."""
+        with self.lock():
+            self._recover_operation(name)
+            state = self.state(name)
+            version(expected_baseline)
+            if state["baseline"] != expected_baseline:
+                raise ValueError(
+                    "The Core baseline changed; reload and review the application upgrade"
+                )
+            declaration, digest = application_lock(lock_file, name)
+            operation = self.app(name) / "operation.json"
+            atomic(
+                operation,
+                {
+                    "phase": "downloading",
+                    "action": "adopt",
+                    "declaration_sha256": digest,
+                    "version": declaration["baseline"],
+                    "at": int(time.time()),
+                    "message": "Verifying current and reviewed Core UI bundles",
+                },
+            )
+            try:
+                try:
+                    self._ensure_version(state["version"])
+                except Exception as error:
+                    raise ValueError(
+                        "Cannot retain current Core UI for rollback. Run check/apply on the current patch line first: "
+                        + str(error)
+                    ) from error
+                baseline = self._ensure_version(declaration["baseline"])
+                if baseline["source_commit"] != declaration["source_commit"]:
+                    raise ValueError(
+                        "Application Core source does not match the signed release"
+                    )
+                _, current_digest = application_lock(lock_file, name)
+                if current_digest != digest:
+                    raise ValueError(
+                        "Application Core declaration changed during review; retry the upgrade"
+                    )
+                keep_current = version(state["version"])[:2] == version(
+                    declaration["baseline"]
+                )[:2] and version(state["version"]) >= version(declaration["baseline"])
+                selected = state["version"] if keep_current else declaration["baseline"]
+                atomic(
+                    self.app(name) / "state.json",
+                    {
+                        **state,
+                        "version": selected,
+                        "baseline": declaration["baseline"],
+                        "adapter": declaration["adapter"],
+                        "previous": state["version"]
+                        if selected != state["version"]
+                        else state.get("previous"),
+                        "previous_baseline": state["baseline"],
+                        "automatic": state["automatic"]
+                        and declaration["automatic_ui_patches"],
+                        "declaration_sha256": digest,
+                        "source_commit": declaration["source_commit"],
+                        "fallback_manifest_sha256": declaration[
+                            "fallback_manifest_sha256"
+                        ],
+                        "last_error": "",
+                        "updated": int(time.time()),
+                    },
+                )
+                atomic(self.app(name) / "candidate.json", None)
+                atomic(
+                    operation,
+                    {
+                        "phase": "complete",
+                        "version": selected,
+                        "at": int(time.time()),
+                        "message": "Reviewed application Core baseline adopted. Previous UI retained; services were not restarted.",
+                    },
+                )
+            except Exception as error:
+                atomic(
+                    operation,
+                    {"phase": "failed", "at": int(time.time()), "message": str(error)},
+                )
+                raise
+            return self.status(name)
+
     def rollback(self, name):
         with self.lock():
             state = self.state(name)
@@ -496,10 +820,7 @@ class Manager:
             version(previous)
             target = self.root / "releases" / previous
             if previous != state["baseline"] or target.exists():
-                raw = (target / "core-manifest.json").read_bytes()
-                verify_signature(raw, (target / "core-manifest.sig").read_bytes())
-                manifest = validate_manifest(json.loads(raw))
-                self.validate_cache(target, manifest)
+                self._cached_version(previous)
             atomic(
                 self.app(name) / "state.json",
                 {
@@ -507,6 +828,18 @@ class Manager:
                     "version": previous,
                     "previous": state["version"],
                     "automatic": False,
+                    "last_error": "",
+                    "updated": int(time.time()),
+                },
+            )
+            atomic(self.app(name) / "candidate.json", None)
+            atomic(
+                self.app(name) / "operation.json",
+                {
+                    "phase": "complete",
+                    "version": previous,
+                    "at": int(time.time()),
+                    "message": "Previous Core UI restored. Automatic updates are paused.",
                 },
             )
         return self.status(name)
@@ -539,16 +872,21 @@ class Manager:
                     # A new operation started after the failed check. Leave its
                     # state untouched and retry at the next scheduled cycle.
                     continue
+                except (OSError, ValueError):
+                    logging.warning("Core update error could not be recorded safely")
+                    continue
 
 
 def serve(manager, stop=None):
     manager.ensure()
     stop = stop or threading.Event()
-    lock_path = manager.root / ".daemon.lock"
-    if lock_path.is_symlink():
-        raise ValueError("Unsafe Core daemon lock")
-    stream = lock_path.open("a")
-    fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    with _lock_descriptor(manager.root / ".daemon.lock") as descriptor:
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _serve_locked(manager, stop)
+
+
+def _serve_locked(manager, stop):
+    manager.recover_pending()
     servers = []
 
     def factory(name, account):
@@ -657,7 +995,6 @@ def serve(manager, stop=None):
             address.unlink(missing_ok=True)
         if "thread" in locals():
             thread.join(timeout=180)
-        stream.close()
 
 
 def main():
@@ -670,7 +1007,13 @@ def main():
     b = s.add_parser("bind")
     b.add_argument("app")
     b.add_argument("--user", required=True)
-    b.add_argument("--baseline", default="1.0.0")
+    choice = b.add_mutually_exclusive_group(required=True)
+    choice.add_argument("--baseline")
+    choice.add_argument("--lock-file", type=Path)
+    adopt = s.add_parser("adopt")
+    adopt.add_argument("app")
+    adopt.add_argument("--lock-file", type=Path, required=True)
+    adopt.add_argument("--expected-baseline", required=True)
     for operation in ("status", "check", "apply", "rollback", "policy"):
         a = s.add_parser(operation)
         a.add_argument("app")
@@ -683,7 +1026,9 @@ def main():
     if args.command == "serve":
         return serve(manager)
     if args.command == "bind":
-        result = manager.bind(args.app, args.user, args.baseline)
+        result = manager.bind(args.app, args.user, args.baseline, args.lock_file)
+    elif args.command == "adopt":
+        result = manager.adopt(args.app, args.lock_file, args.expected_baseline)
     elif args.command == "status":
         result = manager.status(args.app)
     elif args.command == "check":
