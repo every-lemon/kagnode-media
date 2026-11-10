@@ -990,3 +990,16 @@ progress::-moz-progress-bar {
     animation: none;
   }
 }
+
+/* Shared authentication frame has no workspace navigation. */
+.workspace.auth-workspace {
+  margin-left: 0;
+  width: 100%;
+}
+.auth-workspace > main {
+  padding: 0;
+  max-width: none;
+}
+.auth-workspace .auth-card {
+  margin: 0;
+}

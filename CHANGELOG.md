@@ -1,3 +1,10 @@
+# 0.1.0-preview.2
+
+- Use the locally served shared Core login frame with explicit KagNode confirmation and bounded, browser-bound sign-in attempts.
+- Refresh newly consented verified contact email alongside name and photo; preserve local policy, roles and offline sign-in.
+- Media creates a viewer for a first-time verified subject only while local registration is enabled. New viewers have no approved creator status, no trust elevation, and the installation’s normal storage quota. Registration disabled means only existing linked accounts can sign in. An email collision requires explicit local linking. Provider-created viewers can set a local password from Account for offline sign-in; this never weakens the current-password requirement for accounts that already have one.
+- Web/source preview only; no native service or hardware qualification is implied.
+
 ## Ecosystem update panel — packaging preview 2
 
 ## Update recovery status preview

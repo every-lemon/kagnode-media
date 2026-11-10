@@ -8,11 +8,13 @@ Source preview of self-hosted video, audio, photo and album publishing.
 
 ## Release status
 
-Product source: **0.1.0-preview.1**. Packaging preview: **0.1.0-preview.1.packaging.10**.
+Product source: **0.1.0-preview.2**. Packaging preview: **0.1.0-preview.2.packaging.11**.
 
 Packaging prereleases do not change the latest stable release or establish new hardware or service compatibility. See [verification](docs/VERIFICATION.md) and [changelog](CHANGELOG.md).
 
 ## Features
+
+- Shared local sign-in and explicit Login with KagNode; local access and security requirements stay available. See [account sign-in](docs/ACCOUNT-SYNC.md).
 
 - Viewer, creator and administrator accounts with review-based publishing.
 - Resumable uploads, catalog browsing, access-controlled delivery and playback progress.

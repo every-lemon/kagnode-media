@@ -100,15 +100,16 @@
     }
     render(matching, "Searching…");
     input.setAttribute("aria-busy", "true");
-    request = new AbortController();
-    const timeout = setTimeout(() => request.abort(), 8000);
+    const controller = new AbortController();
+    request = controller;
+    const timeout = setTimeout(() => controller.abort(), 8000);
     try {
       const url = new URL(endpoint, location.origin);
       url.searchParams.set("q", term);
       const response = await fetch(url.pathname + url.search, {
         headers: { Accept: "application/json" },
         redirect: "error",
-        signal: request.signal,
+        signal: controller.signal,
       });
       if (
         !response.ok ||
@@ -217,10 +218,21 @@
 
     input.addEventListener("input", () => {
       cancel();
+      const term = input.value.trim();
+      // Invalidate both selection and navigation before the debounce delay.
+      // Enter must never use the results or full-search URL of an old query.
+      more.href = "/search?q=" + encodeURIComponent(term);
+      more.hidden = !term || !endpoint;
+      retry.hidden = true;
+      render([], term ? "Searching…" : "");
+      if (!term) {
+        search();
+        return;
+      }
       timer = setTimeout(search, 150);
     });
     input.addEventListener("keydown", (e) => {
-      if (e.isComposing) return;
+      if (e.isComposing || e.keyCode === 229) return;
       if (["ArrowDown", "ArrowUp"].includes(e.key)) {
         e.preventDefault();
         active(
@@ -235,6 +247,12 @@
       }
     });
     dialog.addEventListener("keydown", (e) => {
+      if (e.isComposing || e.keyCode === 229) {
+        // WebKit can still run the dialog's native Escape dismissal even
+        // when our close handler returns during composition.
+        if (e.key === "Escape") e.preventDefault();
+        return;
+      }
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
@@ -254,6 +272,8 @@
       }
     });
     dialog.addEventListener("close", () => {
+      // Native close events can arrive after another showModal().
+      if (dialog.open) return;
       cancel();
       input.removeAttribute("aria-busy");
       const target =

@@ -1,0 +1,80 @@
+/*! KagNode Core — shared, host-authorized login presentation. */
+html[data-kn-core] [data-core-login] {
+  box-sizing: border-box;
+  min-height: 100svh;
+  width: 100%;
+  padding: clamp(20px, 5vw, 64px) 20px;
+  display: grid;
+  place-items: center;
+  background: var(--kn-panel);
+  color: var(--kn-text);
+}
+html[data-kn-core] [data-core-login][hidden] {
+  display: none !important;
+}
+html[data-kn-core] .kn-core-login-card {
+  box-sizing: border-box;
+  width: min(100%, 440px);
+  min-width: 0;
+  padding: clamp(20px, 5vw, 36px);
+  border: 1px solid var(--kn-line);
+  border-radius: var(--kn-radius-panel);
+  background: var(--kn-bg);
+  overflow-wrap: anywhere;
+}
+html[data-kn-core] .kn-core-login-heading {
+  margin-bottom: 24px;
+}
+html[data-kn-core] .kn-core-login-product {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--kn-muted);
+}
+html[data-kn-core] .kn-core-login-heading h1 {
+  margin: 8px 0;
+  font-size: clamp(26px, 4vw, 32px);
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+}
+html[data-kn-core] .kn-core-login-heading p {
+  line-height: 1.5;
+}
+html[data-kn-core] .kn-core-login-content :is(input, select, textarea) {
+  box-sizing: border-box;
+  max-width: 100%;
+}
+html[data-kn-core] [data-core-login-provider] {
+  box-sizing: border-box;
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 1px solid var(--kn-line);
+  border-radius: var(--kn-radius-control);
+  background: var(--kn-panel);
+  color: var(--kn-text);
+  font: inherit;
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+}
+html[data-kn-core] [data-core-login-provider]:hover {
+  background: var(--kn-bg);
+}
+html[data-kn-core] [data-core-login-provider]:focus-visible {
+  outline: 2px solid var(--kn-focus);
+  outline-offset: 3px;
+}
+html[data-kn-core] .kn-core-login-provider:not(:empty) {
+  border-top: 1px solid var(--kn-line);
+  margin-top: 24px;
+  padding-top: 24px;
+}
+html[data-kn-core] [data-core-login-status] {
+  line-height: 1.5;
+  color: var(--kn-muted);
+  overflow-wrap: anywhere;
+}
