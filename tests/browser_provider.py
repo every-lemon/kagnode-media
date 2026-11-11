@@ -8,6 +8,17 @@ from playwright.sync_api import sync_playwright, expect
 expect.set_options(timeout=20000)
 
 
+def navigation_icons(page, selector):
+    """Real destinations retain one visible icon after Core normalization."""
+    page.wait_for_function(
+        "selector => { const links=[...document.querySelectorAll(selector)]; return links.length>0 && links.every(a=>a.querySelectorAll('svg').length===1); }",
+        arg=selector,
+        timeout=20000,
+    )
+    assert page.locator(selector).count() > 0
+    assert page.locator(selector + " svg").count() == page.locator(selector).count()
+
+
 def shared_login_style(page):
     """Assert the real app uses the canonical frame and resolved action geometry."""
     return page.evaluate(
@@ -104,6 +115,7 @@ try:
             page.wait_for_url(origin + "/")
             page.goto(origin + "/account")
             expect(page.locator(".page-heading h1")).to_be_visible()
+            navigation_icons(page, ".sidebar nav a")
             context.close()
             context = browser.new_context(
                 viewport={"width": width, "height": 950}, color_scheme="dark"

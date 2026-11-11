@@ -579,10 +579,10 @@
         svg.setAttribute("aria-hidden", "true");
         svg.innerHTML = paths;
         const previous = $(
-          ":scope > svg,:scope > .ui-icon,:scope > .icon,:scope > [data-icon],:scope > .nav-icon",
+          ":scope > svg,:scope > .ui-icon,:scope > .icon,:scope > [data-icon],:scope > [data-core-icon],:scope > .nav-icon",
           link,
         );
-        if (previous?.matches("[data-icon]")) {
+        if (previous?.matches("[data-icon],[data-core-icon]")) {
           // Dynamic applications redraw these hosts; keep one leading icon.
           previous.dataset.coreIconHost = "true";
           previous.replaceChildren(svg);
