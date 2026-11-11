@@ -589,7 +589,7 @@ html[data-kn-core] #loading.loading {
   html[data-kn-core] *::after {
     scroll-behavior: auto !important;
   }
-  .sidebar[data-core-sidebar],
+  html[data-kn-core] .sidebar[data-core-sidebar],
   .kn-core-panel-divider,
   .kn-core-rail {
     transition: none !important;
@@ -828,4 +828,9 @@ html[data-core-ready="true"] {
   --kn-layout-transition:
     margin-left var(--kn-motion) var(--kn-easing),
     width var(--kn-motion) var(--kn-easing);
+}
+
+/* Initial adoption must not animate a legacy visible panel off the screen. */
+html[data-kn-core]:not([data-core-ready="true"]) .sidebar[data-core-sidebar] {
+  transition: none !important;
 }

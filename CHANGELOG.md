@@ -1,3 +1,10 @@
+# 5.0.0
+
+- Use the canonical Core 5 login frame, fields, provider flow and action icons.
+- Keep theme selection in account/settings; signed-out pages follow the system theme.
+- Preserve local credentials, explicit account linking, permissions and data compatibility.
+- Publish checked source/data assets with existing package identities and paths.
+
 # 0.1.0-preview.2
 
 - Use the locally served shared Core login frame with explicit KagNode confirmation and bounded, browser-bound sign-in attempts.

@@ -29,8 +29,19 @@ def identity():
     source = (ROOT / cfg["version_file"]).read_text()
     version = re.search(cfg["version_pattern"], source).group(1)
     release = (
-        version + ("." if "-" in version else "-") + "packaging." + str(cfg["revision"])
+        version
+        if cfg.get("channel") == "stable"
+        else (
+            version
+            + ("." if "-" in version else "-")
+            + "packaging."
+            + str(cfg["revision"])
+        )
     )
+    if cfg.get("channel") == "stable" and not re.fullmatch(
+        r"[0-9]+\.[0-9]+\.[0-9]+", version
+    ):
+        raise ValueError("Stable releases require a final product version")
     return cfg, version, release
 
 
@@ -139,7 +150,7 @@ def system_packages(files, package, version, out, epoch, arch="all", binary=Fals
             f"Package: {package}\nVersion: {debversion}\nArchitecture: {arch}\n"
             "Maintainer: KagNode contributors <every-lemon@users.noreply.github.com>\n"
             "Section: misc\nPriority: optional\n"
-            f"Description: KagNode {package} packaging preview\n"
+            f"Description: KagNode {package} source/data package\n"
             " Source/data packages do not provision native services.\n"
         )
         for path in [root, *root.rglob("*")]:
@@ -166,8 +177,8 @@ def system_packages(files, package, version, out, epoch, arch="all", binary=Fals
         for directory in ["SPECS", "BUILD", "BUILDROOT", "RPMS", "SOURCES", "SRPMS"]:
             (specroot / directory).mkdir(parents=True)
         rpmarch = {"all": "noarch", "amd64": "x86_64", "arm64": "aarch64"}[arch]
-        base, prerelease = version.split("-", 1)
-        rpmversion = base + "~" + prerelease
+        base, separator, prerelease = version.partition("-")
+        rpmversion = base + "~" + prerelease if separator else base
         license_id = config()["license"]
         rcfile = temp / "rpmrc"
         rcfile.write_text(
@@ -185,7 +196,7 @@ def system_packages(files, package, version, out, epoch, arch="all", binary=Fals
         spec.write_text(f"""Name: {package}
 Version: {rpmversion}
 Release: 1
-Summary: KagNode packaging preview
+Summary: KagNode source/data payload
 License: {license_id}
 URL: https://github.com/every-lemon/{config()["repository"]}
 BuildArch: {rpmarch}
@@ -196,7 +207,7 @@ AutoReqProv: no
 %global clamp_mtime_to_source_date_epoch 1
 %global use_source_date_epoch_as_buildtime 1
 %description
-KagNode preview payload. Source packages are for inspection and manual setup.
+KagNode source/data payload. No services are installed.
 Native service provisioning is not performed or qualified by this RPM.
 %prep
 %build
@@ -316,7 +327,8 @@ def build(out, native_cli=True):
         "product_version": product,
         "source_commit": head,
         "epoch": epoch,
-        "rpm_status": "Rocky Linux 10 packaging preview; native services unverified",
+        "channel": cfg.get("channel", "preview"),
+        "rpm_status": "Rocky Linux 10 source/data package; no native service qualification",
         "assets": assets,
     }
     (out / "release-manifest.json").write_text(

@@ -119,12 +119,12 @@
     status.textContent = "Ready to play.";
   });
   media.addEventListener("play", () => {
-    play.textContent = "Pause";
+    play.innerHTML = window.KagNodeCore.icon("pause") + "<span>Pause</span>";
     play.setAttribute("aria-label", "Pause");
     status.textContent = "Playing";
   });
   media.addEventListener("pause", () => {
-    play.textContent = "Play";
+    play.innerHTML = window.KagNodeCore.icon("play") + "<span>Play</span>";
     play.setAttribute("aria-label", "Play");
     status.textContent = "Paused";
     save();
