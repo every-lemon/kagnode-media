@@ -70,13 +70,39 @@ class ReleaseTests(unittest.TestCase):
                     with self.assertRaises(ValueError, msg=name):
                         release.source_files()
 
+    def test_stable_channel_rejects_prerelease_and_preserves_preview_ordering(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "packaging").mkdir()
+            cfg = {
+                "version_file": "VERSION",
+                "version_pattern": "^([^\\s]+)",
+                "revision": 2,
+                "channel": "stable",
+            }
+            (root / "packaging/release.json").write_text(json.dumps(cfg))
+            (root / "VERSION").write_text("5.0.0-beta.1")
+            with patch.object(release, "ROOT", root):
+                with self.assertRaises(ValueError):
+                    release.identity()
+                (root / "VERSION").write_text("5.0.0")
+                self.assertEqual(release.identity()[2], "5.0.0")
+                cfg["channel"] = "preview"
+                (root / "packaging/release.json").write_text(json.dumps(cfg))
+                self.assertEqual(release.identity()[2], "5.0.0-packaging.2")
+
     def test_repository_version_resolves_without_relabeling_product(self):
         cfg, product, version = release.identity()
-        self.assertIn("packaging.", version)
+        if cfg.get("channel") == "stable":
+            self.assertEqual(version, product)
+            self.assertRegex(version, r"^[0-9]+\.[0-9]+\.[0-9]+$")
+        else:
+            self.assertIn("packaging.", version)
         self.assertTrue(version.startswith(product))
-        self.assertIs(type(cfg["revision"]), int)
+        self.assertIsInstance(cfg["revision"], int)
         self.assertGreaterEqual(cfg["revision"], 1)
-        self.assertTrue(version.endswith("packaging." + str(cfg["revision"])))
+        if cfg.get("channel") != "stable":
+            self.assertTrue(version.endswith("packaging." + str(cfg["revision"])))
 
 
 if __name__ == "__main__":

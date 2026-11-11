@@ -4,6 +4,46 @@ import argparse, base64, json, os, subprocess, tempfile, time, urllib.request
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
 
+# Real local password hashing and durable SQLite operations run under shared CI load.
+expect.set_options(timeout=20000)
+
+
+def navigation_icons(page, selector):
+    """Real destinations retain one visible icon after Core normalization."""
+    page.wait_for_function(
+        "selector => { const links=[...document.querySelectorAll(selector)]; return links.length>0 && links.every(a=>a.querySelectorAll('svg').length===1); }",
+        arg=selector,
+        timeout=20000,
+    )
+    assert page.locator(selector).count() > 0
+    assert page.locator(selector + " svg").count() == page.locator(selector).count()
+
+
+def shared_login_style(page):
+    """Assert the real app uses the canonical frame and resolved action geometry."""
+    return page.evaluate(
+        """expected => {
+      const root=document.querySelector('[data-core-login]');
+      const card=root.querySelector('.kn-core-login-card');
+      const input=root.querySelector('input:not([type=hidden])');
+      const submit=root.querySelector('button[data-core-login-submit]');
+      const meta=JSON.parse(document.querySelector('meta[name=kagnode-core]').content);
+      if(meta.version!==expected) throw Error('Expected reviewed Core5');
+      if(!root.querySelector('.kn-core-login-mark')) throw Error('Missing canonical login mark');
+      if(document.querySelector('[data-theme-toggle],.theme-toggle,#theme-toggle,[data-kn-theme]')) throw Error('Standalone theme control remains');
+      const css=el=>{const c=getComputedStyle(el);return Object.fromEntries(['fontFamily','fontSize','fontWeight','lineHeight','borderRadius','backgroundColor','color','paddingTop','paddingRight','marginTop','marginBottom','minHeight'].map(k=>[k,c[k]]));};
+      const style={card:css(card),input:css(input),submit:css(submit),product:root.dataset.coreLoginProduct};
+      for (const part of ['card','input','submit']) {
+        if(style[part].marginTop!=='0px'||style[part].marginBottom!=='0px') throw Error('Host margin leaked into Core '+part);
+      }
+      if(style.input.fontWeight!=='400'||style.input.borderRadius!=='8px'||style.input.minHeight!=='44px') throw Error('Host input styling overrides Core');
+      if(style.submit.fontWeight!=='600'||style.submit.borderRadius!=='8px'||style.submit.minHeight!=='44px') throw Error('Host primary action styling overrides Core');
+      return style;
+    }""",
+        json.loads((ROOT / "core.lock.json").read_text())["baseline"],
+    )
+
+
 ROOT = Path(__file__).resolve().parents[1]
 p = argparse.ArgumentParser()
 p.add_argument("--engine", default=os.environ.get("KAGNODE_BROWSER_ENGINE", "chromium"))
@@ -51,9 +91,11 @@ try:
             errors = []
             context.route(
                 "**/*",
-                lambda route: route.continue_()
-                if route.request.url.startswith(origin)
-                else (external.append(route.request.url), route.abort()),
+                lambda route: (
+                    route.continue_()
+                    if route.request.url.startswith(origin)
+                    else (external.append(route.request.url), route.abort())
+                ),
             )
             page = context.new_page()
             page.on("pageerror", lambda error: errors.append(str(error)))
@@ -61,6 +103,7 @@ try:
             provider = page.locator("[data-core-login-provider]")
             expect(provider).to_be_enabled()
             expect(page.locator("[data-core-login]")).to_be_visible()
+            login_style = shared_login_style(page)
             assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+1")
             box = page.locator(".kn-core-login-card").bounding_box()
             assert box and box["width"] >= min(width - 48, 400), box
@@ -72,15 +115,18 @@ try:
             page.wait_for_url(origin + "/")
             page.goto(origin + "/account")
             expect(page.locator(".page-heading h1")).to_be_visible()
+            navigation_icons(page, ".sidebar nav a")
             context.close()
             context = browser.new_context(
                 viewport={"width": width, "height": 950}, color_scheme="dark"
             )
             context.route(
                 "**/*",
-                lambda route: route.continue_()
-                if route.request.url.startswith(origin)
-                else (external.append(route.request.url), route.abort()),
+                lambda route: (
+                    route.continue_()
+                    if route.request.url.startswith(origin)
+                    else (external.append(route.request.url), route.abort())
+                ),
             )
             page = context.new_page()
             page.on("pageerror", lambda error: errors.append(str(error)))
@@ -113,6 +159,7 @@ try:
             report.append(
                 {
                     "engine": args.engine,
+                    "login_style": login_style,
                     "width": width,
                     "local_login": True,
                     "cancel": width == 390,

@@ -1,4 +1,8 @@
-import { installCore, managerRequest } from "../vendor/kagnode-core.mjs";
+import {
+  installCore,
+  managerRequest,
+  renderTemplate as renderCoreTemplate,
+} from "../vendor/kagnode-core.mjs";
 import { AccountProfiles } from "./account-sync.js";
 import { icon } from "./icons.js";
 import express from "express";
@@ -83,7 +87,7 @@ export function createApp(config: Config, store = new Store(config)) {
   });
   app.get("/healthz", (_q, r) => {
     store.one("SELECT 1");
-    r.json({ ok: true, service: "kagnode-media", version: "0.1.0-preview.2" });
+    r.json({ ok: true, service: "kagnode-media", version: "5.0.0" });
   });
   app.use((q, r, next) => {
     if (q.get("Host") !== new URL(config.origin).host) return r.sendStatus(421);
@@ -219,6 +223,7 @@ export function createApp(config: Config, store = new Store(config)) {
       path: q.path,
       asset,
       icon,
+      renderCoreTemplate,
       policy: store.policy(),
       config: { origin: config.origin },
       items: [],
@@ -934,6 +939,7 @@ export function createApp(config: Config, store = new Store(config)) {
       path: "",
       asset,
       icon,
+      renderCoreTemplate,
       user: null,
       csrf: "",
       policy: store.policy(),

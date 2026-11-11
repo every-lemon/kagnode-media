@@ -27,9 +27,13 @@
   const panelIcon =
     '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path class="kn-core-panel-divider" d="M8 4v16"/></svg>';
   const menuIcon =
-    '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>';
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">' +
+    window.KagNodeIcons.menu +
+    "</svg>";
   const userIcon =
-    '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/></svg>';
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">' +
+    window.KagNodeIcons.account +
+    "</svg>";
   let sidebar,
     toggle,
     scrim,
@@ -434,7 +438,30 @@
       );
     $("a,button", menu)?.focus({ preventScroll: true });
   }
+  function componentIcon(name) {
+    const key = Object.hasOwn(window.KagNodeIcons, name) ? name : "plan";
+    return (
+      '<svg class="ui-icon" data-core-icon-name="' +
+      key +
+      '" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' +
+      window.KagNodeIcons[key] +
+      "</svg>"
+    );
+  }
   function normalize() {
+    for (const host of all("[data-core-icon]")) {
+      const name = host.dataset.coreIcon;
+      const key = Object.hasOwn(window.KagNodeIcons, name) ? name : "plan";
+      if (
+        host.dataset.coreIconRendered === key &&
+        host.childElementCount === 1 &&
+        host.firstElementChild?.getAttribute("data-core-icon-name") === key
+      )
+        continue;
+      host.innerHTML = componentIcon(key);
+      host.dataset.coreIconRendered = key;
+    }
+
     window.KagNodeLoading?.enhance();
     if (!sidebar || !sidebar.isConnected) {
       scrim?.remove();
@@ -548,16 +575,17 @@
         svg.setAttribute("viewBox", "0 0 24 24");
         svg.setAttribute("fill", "none");
         svg.setAttribute("stroke", "currentColor");
-        svg.setAttribute("stroke-width", "1.5");
+        svg.setAttribute("stroke-width", "1.7");
         svg.setAttribute("aria-hidden", "true");
         svg.innerHTML = paths;
         const previous = $(
-          ":scope > svg,:scope > .ui-icon,:scope > .icon,:scope > [data-icon],:scope > .nav-icon",
+          ":scope > svg,:scope > .ui-icon,:scope > .icon,:scope > [data-icon],:scope > [data-core-icon],:scope > .nav-icon",
           link,
         );
-        if (previous?.matches("[data-icon]")) {
+        if (previous?.matches("[data-icon],[data-core-icon]")) {
           // Dynamic applications redraw these hosts; keep one leading icon.
           previous.dataset.coreIconHost = "true";
+          previous.replaceChildren(svg);
         } else if (previous) previous.replaceWith(svg);
         else link.prepend(svg);
         link.dataset.coreIconReady = "true";
@@ -737,7 +765,7 @@
     childList: true,
     subtree: true,
     attributes: true,
-    attributeFilter: ["hidden", "open", "inert"],
+    attributeFilter: ["hidden", "open", "inert", "data-core-icon"],
   });
   const loading = {
     show(label = "Loading…") {
@@ -769,6 +797,8 @@
     version: config.version || "1.0.0",
     config,
     icons: window.KagNodeIcons,
+    iconSources: window.KagNodeIconSources,
+    icon: componentIcon,
     loading,
     closeAccount,
     navigation: {
