@@ -16,6 +16,7 @@ import { Store, uid } from "./database.js";
 import { MediaError } from "./errors.js";
 import {
   identity,
+  browserBinding,
   createUser,
   emailAddress,
   verifyPassword,
@@ -140,7 +141,7 @@ export function createApp(config: Config, store = new Store(config)) {
       if (Object.values(q.query).some((value) => typeof value !== "string"))
         throw new MediaError("Invalid callback.", 400);
       const attempt = await accountProfiles.callback(
-        String(r.locals.csrf),
+        browserBinding(store, q, r),
         String(q.query.state || ""),
         String(q.query.iss || ""),
         String(q.query.code || ""),
@@ -162,19 +163,17 @@ export function createApp(config: Config, store = new Store(config)) {
     async (q, r) => {
       if (q.mediaUser) throw new MediaError("You are already signed in.", 409);
       const attempt = String(q.body.attempt_id || "");
+      const browser = browserBinding(store, q, r, q.body.action === "start");
       const result =
         q.body.action === "start"
-          ? await accountProfiles.startBrowser(String(r.locals.csrf))
+          ? await accountProfiles.startBrowser(browser)
           : await accountProfiles.login(
-              String(r.locals.csrf),
+              browser,
               String(q.body.action || ""),
               attempt,
             );
       if (result.authorized) {
-        const user = accountProfiles.finishLogin(
-          String(r.locals.csrf),
-          attempt,
-        );
+        const user = accountProfiles.finishLogin(browser, attempt);
         signIn(store, r, user);
         return r.json({
           authorized: true,

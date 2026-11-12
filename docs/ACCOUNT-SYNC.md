@@ -43,3 +43,12 @@ Callbacks require the initiating browser cookie, exact state and the configured 
 The profile database migration only adds sign-in attempt columns and an index. Keep its original permissions and preserve it alongside the application database; do not replace either during a web update. Core assets and the fallback are locally served. A compatible Core UI patch does not authorize replacing the application backend, its SDK or native services.
 
 Protocol references: [S256 PKCE, RFC 7636](https://www.rfc-editor.org/rfc/rfc7636.html), [issuer identification, RFC 9207](https://www.rfc-editor.org/rfc/rfc9207.html), and [OAuth security guidance, RFC 9700](https://www.rfc-editor.org/rfc/rfc9700.html). These controls are tested implementation behavior, not a claim of certification.
+
+HTTPS sign-in uses a dedicated `__Host-` browser-return cookie (Secure, HttpOnly,
+SameSite=Lax, Path=/, no Domain). An unprefixed or duplicate cookie is not accepted
+as that binding. Local HTTP development uses a separate unprefixed cookie; keep
+it limited to the explicitly supported private/loopback installation.
+Media also uses host-prefixed HTTPS session and anonymous form cookies, without
+legacy-name fallback. Existing HTTPS browsers sign in again after this update;
+accounts and stored media are unchanged. The anonymous form cookie remains
+SameSite=Strict and does not bind the provider return.

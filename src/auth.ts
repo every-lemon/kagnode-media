@@ -16,7 +16,35 @@ const scrypt = (
       error ? reject(error) : resolve(key),
     ),
   );
-const cookieName = "kagnode.media.sid";
+function cookieName(store: Store, kind: "sid" | "form" | "return") {
+  return (store.config.secure ? "__Host-" : "") + "kagnode.media." + kind;
+}
+export function browserBinding(
+  store: Store,
+  req: Request,
+  res: Response,
+  create = false,
+) {
+  const name = cookieName(store, "return");
+  let token = cookie(req, name);
+  if (!/^[A-Za-z0-9_-]{43}$/.test(token)) {
+    if (!create)
+      throw new MediaError(
+        "This sign-in belongs to another browser or has expired.",
+        403,
+      );
+    token = crypto.randomBytes(32).toString("base64url");
+  }
+  if (create)
+    res.cookie(name, token, {
+      httpOnly: true,
+      secure: store.config.secure,
+      sameSite: "lax",
+      maxAge: 600000,
+      path: "/",
+    });
+  return token;
+}
 declare global {
   namespace Express {
     interface Request {
@@ -97,11 +125,11 @@ export async function createUser(
   });
 }
 export function cookie(req: Request, name: string) {
-  const pair = String(req.headers.cookie || "")
+  const pairs = String(req.headers.cookie || "")
     .split(";")
     .map((v) => v.trim())
-    .find((v) => v.startsWith(name + "="));
-  return pair ? pair.slice(name.length + 1) : "";
+    .filter((v) => v.startsWith(name + "="));
+  return pairs.length === 1 ? pairs[0].slice(name.length + 1) : "";
 }
 export function signIn(store: Store, res: Response, user: User) {
   const token = crypto.randomBytes(32).toString("base64url"),
@@ -113,7 +141,7 @@ export function signIn(store: Store, res: Response, user: User) {
     csrf,
     Date.now() + 86400000,
   );
-  res.cookie(cookieName, token, {
+  res.cookie(cookieName(store, "sid"), token, {
     httpOnly: true,
     secure: store.config.secure,
     sameSite: "lax",
@@ -124,9 +152,9 @@ export function signIn(store: Store, res: Response, user: User) {
 export function signOut(store: Store, req: Request, res: Response) {
   store.run(
     "DELETE FROM sessions WHERE token=?",
-    digest(cookie(req, cookieName)),
+    digest(cookie(req, cookieName(store, "sid"))),
   );
-  res.clearCookie(cookieName, {
+  res.clearCookie(cookieName(store, "sid"), {
     path: "/",
     httpOnly: true,
     secure: store.config.secure,
@@ -144,7 +172,7 @@ export function identity(store: Store): RequestHandler {
   const signature = (nonce: string) =>
     crypto.createHmac("sha256", secret).update(nonce).digest("hex");
   return (req, res, next) => {
-    const token = cookie(req, cookieName),
+    const token = cookie(req, cookieName(store, "sid")),
       session =
         token &&
         store.one(
@@ -158,7 +186,7 @@ export function identity(store: Store): RequestHandler {
       req.mediaSession = session;
       res.locals.csrf = session.csrf;
     } else {
-      let token = cookie(req, "kagnode.media.form"),
+      let token = cookie(req, cookieName(store, "form")),
         match = /^([a-f0-9]{32}\.\d{13})\.([a-f0-9]{64})$/.exec(token);
       if (
         !match ||
@@ -173,9 +201,9 @@ export function identity(store: Store): RequestHandler {
           "." +
           (Date.now() + 14400000);
         token = nonce + "." + signature(nonce);
-        res.cookie("kagnode.media.form", token, {
+        res.cookie(cookieName(store, "form"), token, {
           httpOnly: true,
-          sameSite: "lax",
+          sameSite: "strict",
           secure: store.config.secure,
           maxAge: 14400000,
           path: "/",

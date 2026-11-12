@@ -399,3 +399,104 @@ test("denied browser callback never exchanges; concurrent cancellation revokes r
     f.close();
   }
 });
+
+test("HTTPS ignores tossed legacy cookies and binds return to a dedicated host cookie", async () => {
+  const f = fixture();
+  try {
+    f.config.secure = true;
+    f.config.origin = "https://media.example.test";
+    const { app } = createApp(f.config, f.store);
+    (app.locals.accountProfiles as any).transport = f.transport;
+    const host = "media.example.test";
+    const page = await request(app).get("/login").set("Host", host);
+    const cookies = page.headers["set-cookie"] as unknown as string[];
+    const form = cookies.find((v) =>
+      v.startsWith("__Host-kagnode.media.form="),
+    )!;
+    assert.match(form, /; Secure/);
+    assert.match(form, /; HttpOnly/);
+    assert.match(form, /; Path=\//);
+    assert.match(form, /; SameSite=Strict/);
+    assert.ok(!form.includes("Domain="));
+    const csrf = /name="csrf-token" content="([^"]+)"/.exec(page.text)![1];
+    const start = await request(app)
+      .post("/api/v1/kagnode-login")
+      .set("Host", host)
+      .set("Cookie", form.split(";")[0])
+      .set("X-CSRF-Token", csrf)
+      .send({ action: "start" });
+    assert.equal(start.status, 200, start.text);
+    const returned = (start.headers["set-cookie"] as unknown as string[]).find(
+      (v) => v.startsWith("__Host-kagnode.media.return="),
+    )!;
+    assert.match(returned, /; Secure/);
+    assert.match(returned, /; HttpOnly/);
+    assert.match(returned, /; SameSite=Lax/);
+    assert.match(returned, /; Path=\//);
+    assert.ok(!returned.includes("Domain="));
+    const query = {
+      state: f.browserRequest().state,
+      iss: "https://nebulacoder.com",
+      code: "C".repeat(43),
+    };
+    const tossed =
+      form.split(";")[0].replace("__Host-", "") +
+      "; " +
+      returned.split(";")[0].replace("__Host-", "");
+    for (const cookie of [
+      tossed,
+      form.split(";")[0],
+      returned.split(";")[0] + "; " + returned.split(";")[0],
+    ]) {
+      const denied = await request(app)
+        .get("/auth/kagnode/callback")
+        .set("Host", host)
+        .set("Cookie", cookie)
+        .query(query);
+      assert.equal(denied.headers.location, "/login?kagnode_error=invalid");
+      assert.equal(f.calls.includes("token"), false);
+    }
+    // A valid signed form value copied into a legacy Domain cookie is not CSRF authority.
+    const forged = await request(app)
+      .post("/api/v1/kagnode-login")
+      .set("Host", host)
+      .set("Cookie", tossed)
+      .set("X-CSRF-Token", csrf)
+      .send({ action: "start" });
+    assert.equal(forged.status, 403);
+    const user = await createUser(
+      f.store,
+      "attacker@example.test",
+      "Fixture",
+      "Fictional password only!",
+    );
+    const { digest } = await import("../src/database.js");
+    const session = "S".repeat(43);
+    f.store.run(
+      "INSERT INTO sessions VALUES(?,?,?,?)",
+      digest(session),
+      user.id,
+      "csrf",
+      Date.now() + 600000,
+    );
+    const legacy = await request(app)
+      .get("/account")
+      .set("Host", host)
+      .set("Cookie", "kagnode.media.sid=" + session);
+    assert.notEqual(legacy.status, 200);
+    const trusted = await request(app)
+      .get("/account")
+      .set("Host", host)
+      .set("Cookie", "__Host-kagnode.media.sid=" + session);
+    assert.equal(trusted.status, 200, trusted.text);
+    // Only the original HTTPS host cookie reaches the real state-bound exchange.
+    await request(app)
+      .get("/auth/kagnode/callback")
+      .set("Host", host)
+      .set("Cookie", returned.split(";")[0])
+      .query(query);
+    assert.equal(f.calls.includes("token"), true);
+  } finally {
+    f.close();
+  }
+});
