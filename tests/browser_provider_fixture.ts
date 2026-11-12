@@ -31,6 +31,15 @@ let pending = true,
 const control = crypto.randomBytes(24).toString("hex");
 links.transport = async (_method: string, endpoint: string, data?: any) => {
   if (offline) throw Error("Fictional issuer unavailable");
+  if (endpoint === "browser/start") {
+    device = data;
+    return {
+      request_id: "Q".repeat(43),
+      authorization_uri:
+        "https://nebulacoder.com/oauth/authorize?request=" + "Q".repeat(43),
+      expires_in: 600,
+    };
+  }
   if (endpoint === "device") {
     device = data;
     return {
@@ -43,7 +52,7 @@ links.transport = async (_method: string, endpoint: string, data?: any) => {
   if (endpoint === "token") {
     if (data.grant_type === "refresh_token")
       return { access_token: "A".repeat(43), refresh_token: "Q".repeat(43) };
-    if (pending) return { error: "authorization_pending" };
+
     const now = Date.now() / 1000;
     return {
       scope: "profile.read email.read",
@@ -98,7 +107,7 @@ server.on("request", (q, r) => {
         "UPDATE account_sync_policy SET enabled=1,generation=generation+1",
       );
     r.setHeader("Content-Type", "application/json");
-    r.end(JSON.stringify({ ok: true }));
+    r.end(JSON.stringify(action === "request" ? device : { ok: true }));
     return;
   }
   app(q, r);

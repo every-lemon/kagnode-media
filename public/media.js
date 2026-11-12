@@ -27,6 +27,8 @@
   window.KagNodeMedia = { request, csrf };
   window.KagNodeLoginHost = {
     state: () => ({
+      issuer: document.querySelector("[data-core-login-provider]")?.dataset
+        .providerIssuer,
       enabled: !!document.querySelector("[data-core-login-provider]"),
     }),
     request: (action, data) =>

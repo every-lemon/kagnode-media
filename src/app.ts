@@ -87,7 +87,7 @@ export function createApp(config: Config, store = new Store(config)) {
   });
   app.get("/healthz", (_q, r) => {
     store.one("SELECT 1");
-    r.json({ ok: true, service: "kagnode-media", version: "5.0.0" });
+    r.json({ ok: true, service: "kagnode-media", version: "5.0.1" });
   });
   app.use((q, r, next) => {
     if (q.get("Host") !== new URL(config.origin).host) return r.sendStatus(421);
@@ -134,6 +134,27 @@ export function createApp(config: Config, store = new Store(config)) {
   );
   const accountProfiles = new AccountProfiles(store, config.origin);
   app.locals.accountProfiles = accountProfiles;
+  app.get("/auth/kagnode/callback", async (q, r) => {
+    let target = "/login?kagnode_error=invalid";
+    try {
+      if (Object.values(q.query).some((value) => typeof value !== "string"))
+        throw new MediaError("Invalid callback.", 400);
+      const attempt = await accountProfiles.callback(
+        String(r.locals.csrf),
+        String(q.query.state || ""),
+        String(q.query.iss || ""),
+        String(q.query.code || ""),
+        String(q.query.error || ""),
+      );
+      target = "/login?kagnode_attempt=" + encodeURIComponent(attempt);
+    } catch {
+      /* Never reflect authorization query values or expose tokens. */
+    }
+    r.set({
+      "Cache-Control": "no-store",
+      "Referrer-Policy": "no-referrer",
+    }).redirect(303, target);
+  });
   app.post(
     "/api/v1/kagnode-login",
     (q, r, next) =>
@@ -141,11 +162,14 @@ export function createApp(config: Config, store = new Store(config)) {
     async (q, r) => {
       if (q.mediaUser) throw new MediaError("You are already signed in.", 409);
       const attempt = String(q.body.attempt_id || "");
-      const result = await accountProfiles.login(
-        String(r.locals.csrf),
-        String(q.body.action || ""),
-        attempt,
-      );
+      const result =
+        q.body.action === "start"
+          ? await accountProfiles.startBrowser(String(r.locals.csrf))
+          : await accountProfiles.login(
+              String(r.locals.csrf),
+              String(q.body.action || ""),
+              attempt,
+            );
       if (result.authorized) {
         const user = accountProfiles.finishLogin(
           String(r.locals.csrf),
@@ -216,6 +240,7 @@ export function createApp(config: Config, store = new Store(config)) {
   ) =>
     r.render("layout", {
       page,
+      providerIssuer: accountProfiles.issuer,
       providerEnabled: accountProfiles.loginEnabled(),
       title,
       user: q.mediaUser || null,

@@ -175,7 +175,7 @@ export function identity(store: Store): RequestHandler {
         token = nonce + "." + signature(nonce);
         res.cookie("kagnode.media.form", token, {
           httpOnly: true,
-          sameSite: "strict",
+          sameSite: "lax",
           secure: store.config.secure,
           maxAge: 14400000,
           path: "/",

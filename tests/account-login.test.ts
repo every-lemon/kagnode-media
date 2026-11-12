@@ -25,6 +25,15 @@ function fixture() {
   const calls: string[] = [];
   const transport = async (_method: string, endpoint: string, data?: any) => {
     calls.push(endpoint);
+    if (endpoint === "browser/start") {
+      device = data;
+      return {
+        request_id: "Q".repeat(43),
+        authorization_uri:
+          "https://nebulacoder.com/oauth/authorize?request=" + "Q".repeat(43),
+        expires_in: 600,
+      };
+    }
     if (endpoint === "device") {
       device = data;
       return {
@@ -76,6 +85,7 @@ function fixture() {
     links,
     calls,
     transport,
+    browserRequest: () => device,
     setPending: (v: boolean) => (pending = v),
     setReply: (v: any) => (override = v),
     setHook: (v: () => Promise<void>) => (hook = v),
@@ -248,6 +258,18 @@ test("HTTP routes require anonymous CSRF, create viewer session and permit initi
       .set("X-CSRF-Token", csrf!)
       .send({ action: "start" });
     assert.equal(start.status, 200, start.text);
+    const returned = await agent
+      .get("/auth/kagnode/callback")
+      .set("Host", "localhost")
+      .query({
+        state: f.browserRequest().state,
+        iss: "https://nebulacoder.com",
+        code: "C".repeat(43),
+      });
+    assert.equal(returned.status, 303, returned.text);
+    assert.equal(returned.headers["cache-control"], "no-store");
+    assert.equal(returned.headers["referrer-policy"], "no-referrer");
+    assert.ok(!returned.headers.location.includes("code="));
     const result = await agent
       .post("/api/v1/kagnode-login")
       .set("Host", "localhost")
@@ -274,6 +296,105 @@ test("HTTP routes require anonymous CSRF, create viewer session and permit initi
       await verifyPassword("Offline fictional password!", user.password),
       true,
     );
+  } finally {
+    f.close();
+  }
+});
+
+test("browser callback binds cookie/state/issuer, verifies PKCE and claims only once", async () => {
+  const f = fixture();
+  try {
+    const start: any = await f.links.startBrowser("original-browser");
+    assert.ok(start.authorization_uri);
+    assert.equal(start.user_code, undefined);
+    const details = f.browserRequest();
+    assert.equal(details.code_challenge_method, "S256");
+    assert.ok(!JSON.stringify(start).includes(details.state));
+    assert.equal(
+      (await f.links.login("original-browser", "status", start.attempt_id))
+        .pending,
+      true,
+    );
+    assert.equal(f.calls.filter((p) => p === "token").length, 0);
+    for (const [browser, state, issuer] of [
+      ["other", details.state, "https://nebulacoder.com"],
+      ["original-browser", "Z".repeat(43), "https://nebulacoder.com"],
+      ["original-browser", details.state, "https://evil.test"],
+    ]) {
+      await assert.rejects(
+        f.links.callback(browser, state, issuer, "C".repeat(43)),
+      );
+    }
+    const stored = f.store.one(
+      "SELECT * FROM account_sign_in WHERE id=?",
+      start.attempt_id,
+    );
+    const crypto = await import("node:crypto");
+    assert.equal(
+      crypto.createHash("sha256").update(stored.verifier).digest("base64url"),
+      details.code_challenge,
+    );
+    assert.equal(
+      await f.links.callback(
+        "original-browser",
+        details.state,
+        "https://nebulacoder.com",
+        "C".repeat(43),
+      ),
+      start.attempt_id,
+    );
+    await assert.rejects(
+      f.links.callback(
+        "original-browser",
+        details.state,
+        "https://nebulacoder.com",
+        "C".repeat(43),
+      ),
+    );
+    assert.equal(f.calls.filter((p) => p === "token").length, 1);
+    assert.equal(
+      f.store.one(
+        "SELECT verifier FROM account_sign_in WHERE id=?",
+        start.attempt_id,
+      ).verifier,
+      "",
+    );
+    assert.equal(
+      f.links.finishLogin("original-browser", start.attempt_id).role,
+      "viewer",
+    );
+  } finally {
+    f.close();
+  }
+});
+test("denied browser callback never exchanges; concurrent cancellation revokes returned tokens", async () => {
+  const f = fixture();
+  try {
+    let start: any = await f.links.startBrowser("browser");
+    await f.links.callback(
+      "browser",
+      f.browserRequest().state,
+      "https://nebulacoder.com",
+      "",
+      "untrusted error text",
+    );
+    assert.equal(f.calls.filter((p) => p === "token").length, 0);
+    await assert.rejects(
+      f.links.login("browser", "status", start.attempt_id),
+      /could not be completed/,
+    );
+    start = await f.links.startBrowser("browser");
+    f.setHook(async () => {
+      await f.links.login("browser", "cancel", start.attempt_id);
+    });
+    await f.links.callback(
+      "browser",
+      f.browserRequest().state,
+      "https://nebulacoder.com",
+      "C".repeat(43),
+    );
+    assert.ok(f.calls.includes("revoke"));
+    assert.throws(() => f.links.finishLogin("browser", start.attempt_id));
   } finally {
     f.close();
   }
