@@ -8,11 +8,13 @@ Source preview of self-hosted video, audio, photo and album publishing.
 
 ## Release status
 
-Product source: **5.0.0**. Stable source/data release: **5.0.0**.
+Product source: **5.0.1**. Stable source/data release: **5.0.1**.
 
 KagNode 5 uses the same locally served Core login frame and action icons across applications. Existing local sign-in, explicit KagNode connection, profile-sync policy, local roles and storage formats are preserved. The stable assets are reviewed source/data packages. Media remains source-only for this rollout; no production worker, transcoding or hardware qualification is claimed.
 
 Earlier packaging prereleases remain available. The 5.0 stable release is limited to the verified source/data and web-interface scope; native and hardware evidence remains separate. See [verification](docs/VERIFICATION.md) and [changelog](CHANGELOG.md).
+
+Browser sign-in now returns from KagNode to this application in the same tab, using a one-use authorization code with S256 PKCE. Local email/username forms reveal the password step after identity entry; vault setup, MFA and key-only controls preserve their existing requirements. See [account sign-in](docs/ACCOUNT-SYNC.md).
 
 ## Features
 

@@ -67,7 +67,8 @@ def control(action):
     request = urllib.request.Request(
         origin + "/__fixture/" + action, headers={"X-Fixture-Key": state["control"]}
     )
-    urllib.request.urlopen(request, timeout=15).close()
+    with urllib.request.urlopen(request, timeout=15) as response:
+        return json.load(response)
 
 
 output = Path(os.environ.get("KAGNODE_SCREENSHOT_DIR", ROOT / ".build/provider-login"))
@@ -89,14 +90,31 @@ try:
             )
             external = []
             errors = []
-            context.route(
-                "**/*",
-                lambda route: (
+
+            def guard(route):
+                url = route.request.url
+                if url.startswith(origin + "/"):
                     route.continue_()
-                    if route.request.url.startswith(origin)
-                    else (external.append(route.request.url), route.abort())
-                ),
-            )
+                    return
+                if url.startswith("https://nebulacoder.com/oauth/authorize?"):
+                    import html
+
+                    details = control("request")
+                    callback = html.escape(
+                        origin + "/auth/kagnode/callback", quote=True
+                    )
+                    state = html.escape(details["state"], quote=True)
+                    route.fulfill(
+                        content_type="text/html",
+                        body=f'<h1>Fictional KagNode consent</h1><form method="get" action="{callback}"><input type="hidden" name="state" value="{state}"><input type="hidden" name="iss" value="https://nebulacoder.com"><button name="code" value="'
+                        + "C" * 43
+                        + '">Approve</button><button name="error" value="access_denied">Cancel</button></form>',
+                    )
+                    return
+                external.append(url)
+                route.abort()
+
+            context.route("**/*", guard)
             page = context.new_page()
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.goto(origin + "/login")
@@ -110,8 +128,10 @@ try:
             page.screenshot(path=str(output / f"{args.engine}-{width}-login.png"))
             form = page.locator('form[action="/login"]')
             form.locator("[name=email]").fill("local@example.test")
+            expect(form.locator("[name=password]")).to_be_hidden()
+            form.get_by_role("button", name="Continue", exact=True).click()
             form.locator("[name=password]").fill(state["password"])
-            form.locator("button").click()
+            form.locator("button[type=submit]").click()
             page.wait_for_url(origin + "/")
             page.goto(origin + "/account")
             expect(page.locator(".page-heading h1")).to_be_visible()
@@ -120,25 +140,42 @@ try:
             context = browser.new_context(
                 viewport={"width": width, "height": 950}, color_scheme="dark"
             )
-            context.route(
-                "**/*",
-                lambda route: (
+
+            def guard(route):
+                url = route.request.url
+                if url.startswith(origin + "/"):
                     route.continue_()
-                    if route.request.url.startswith(origin)
-                    else (external.append(route.request.url), route.abort())
-                ),
-            )
+                    return
+                if url.startswith("https://nebulacoder.com/oauth/authorize?"):
+                    import html
+
+                    details = control("request")
+                    callback = html.escape(
+                        origin + "/auth/kagnode/callback", quote=True
+                    )
+                    state = html.escape(details["state"], quote=True)
+                    route.fulfill(
+                        content_type="text/html",
+                        body=f'<h1>Fictional KagNode consent</h1><form method="get" action="{callback}"><input type="hidden" name="state" value="{state}"><input type="hidden" name="iss" value="https://nebulacoder.com"><button name="code" value="'
+                        + "C" * 43
+                        + '">Approve</button><button name="error" value="access_denied">Cancel</button></form>',
+                    )
+                    return
+                external.append(url)
+                route.abort()
+
+            context.route("**/*", guard)
             page = context.new_page()
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.goto(origin + "/login")
             provider = page.locator("[data-core-login-provider]")
             if width == 390:
-                control("pending")
+                control("approved")
                 provider.click()
-                expect(page.get_by_text("ABCDE-12345", exact=True)).to_be_visible(
-                    timeout=15000
+                page.get_by_role("button", name="Cancel", exact=True).click()
+                expect(page.locator("[data-core-login-status]")).to_contain_text(
+                    "Unable to check the connection", timeout=20000
                 )
-                page.get_by_role("button", name="Cancel connection").click()
                 expect(provider).to_be_enabled()
                 control("offline")
                 provider.click()
@@ -147,6 +184,7 @@ try:
                 )
             control("approved")
             provider.click()
+            page.get_by_role("button", name="Approve", exact=True).click()
             page.wait_for_url(origin + "/account", timeout=20000)
             expect(page.locator(".page-heading h1")).to_be_visible()
             expect(

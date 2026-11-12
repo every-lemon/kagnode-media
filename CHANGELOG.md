@@ -1,3 +1,10 @@
+# 5.0.1
+
+- Return Login with KagNode to the initiating application through a browser-bound S256 PKCE callback.
+- Use Core 5.0.5 progressive login controls while preserving local passwords, vault encryption, MFA and administrator policy.
+- Reject callback state/issuer mismatches and replay; keep tokens and verifiers server-side and clear authorization query parameters before loading app resources.
+- Preserve package identities, existing account links and data with additive sign-in attempt storage. Native services and images are unchanged.
+
 # 5.0.0
 
 - Use the canonical Core 5 login frame, fields, provider flow and action icons.

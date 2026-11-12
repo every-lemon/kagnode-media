@@ -36,6 +36,27 @@ export class AccountProfiles {
     store.db.exec(
       `CREATE TABLE IF NOT EXISTS account_sign_in(id TEXT PRIMARY KEY,browser TEXT NOT NULL,nonce TEXT NOT NULL,started INTEGER NOT NULL,expires INTEGER NOT NULL,generation INTEGER NOT NULL,status TEXT NOT NULL,device TEXT NOT NULL DEFAULT '',user_code TEXT NOT NULL DEFAULT '',verification TEXT NOT NULL DEFAULT '',polled INTEGER NOT NULL DEFAULT 0,interval INTEGER NOT NULL DEFAULT 5000,profile TEXT NOT NULL DEFAULT '',tokens TEXT NOT NULL DEFAULT '',local_id TEXT NOT NULL DEFAULT '',stamp TEXT NOT NULL DEFAULT '');CREATE INDEX IF NOT EXISTS account_sign_in_browser ON account_sign_in(browser);`,
     );
+    store.transaction(() => {
+      const columns = new Set(
+        store.all("PRAGMA table_info(account_sign_in)").map((r: any) => r.name),
+      );
+      for (const [name, fallback] of [
+        ["flow", "device"],
+        ["request_id", ""],
+        ["redirect_uri", ""],
+        ["state_hash", ""],
+        ["verifier", ""],
+        ["failure", ""],
+      ]) {
+        if (!columns.has(name))
+          store.db.exec(
+            `ALTER TABLE account_sign_in ADD COLUMN ${name} TEXT NOT NULL DEFAULT '${fallback}'`,
+          );
+      }
+      store.db.exec(
+        "CREATE UNIQUE INDEX IF NOT EXISTS account_sign_in_state ON account_sign_in(state_hash) WHERE state_hash!=''",
+      );
+    });
     const previous = store.one(
       "SELECT issuer FROM account_profile_issuer WHERE id=1",
     );
@@ -94,6 +115,16 @@ export class AccountProfiles {
     this.store.run("DELETE FROM account_sign_in WHERE id=?", row.id);
   }
   private loginPublic(row: any) {
+    if (row.flow === "browser")
+      return {
+        pending: row.status !== "ready",
+        authorized: row.status === "ready",
+        attempt_id: row.id,
+        expires_in: Math.max(1, Math.ceil((row.expires - Date.now()) / 1000)),
+        ...(row.status === "pending"
+          ? { authorization_uri: row.verification }
+          : {}),
+      };
     return {
       pending: row.status !== "ready",
       authorized: row.status === "ready",
@@ -115,6 +146,158 @@ export class AccountProfiles {
         /* Local invalidation is authoritative. */
       }
   }
+  private async cancelBrowser(row: any) {
+    if (row.request_id && row.verifier) {
+      try {
+        await this.request("POST", "browser/cancel", {
+          client_id: "kagnode-media",
+          request_id: row.request_id,
+          code_verifier: row.verifier,
+        });
+      } catch {
+        /* Local cancellation remains authoritative. */
+      }
+    } else await this.cancelDevice(row.device || "");
+  }
+  async startBrowser(browser: string) {
+    if (!browser || browser.length > 512 || !this.loginEnabled())
+      throw new MediaError(
+        "KagNode access is unavailable. Sign in locally.",
+        403,
+      );
+    const id = crypto.randomBytes(32).toString("base64url"),
+      nonce = crypto.randomBytes(32).toString("base64url"),
+      state = crypto.randomBytes(32).toString("base64url"),
+      verifier = crypto.randomBytes(32).toString("base64url"),
+      redirect_uri = this.origin + "/auth/kagnode/callback",
+      generation = this.policy().generation;
+    const previous = this.store.all(
+      "SELECT * FROM account_sign_in WHERE browser=? OR expires<=? OR generation!=?",
+      digest(browser),
+      Date.now(),
+      generation,
+    );
+    this.store.transaction(() => {
+      previous.forEach((row) => this.forgetLogin(row));
+      if (
+        this.store.one("SELECT COUNT(*) count FROM account_sign_in").count >=
+        128
+      )
+        throw new MediaError("Sign-in is busy. Try again later.", 429);
+      this.store.run(
+        "INSERT INTO account_sign_in(id,browser,nonce,started,expires,generation,status,flow,redirect_uri,state_hash,verifier) VALUES(?,?,?,?,?,?,'starting','browser',?,?,?)",
+        id,
+        digest(browser),
+        nonce,
+        Date.now(),
+        Date.now() + 600000,
+        generation,
+        redirect_uri,
+        digest(state),
+        verifier,
+      );
+    });
+    for (const row of previous) await this.cancelBrowser(row);
+    let value: any;
+    try {
+      value = await this.request("POST", "browser/start", {
+        client_id: "kagnode-media",
+        installation: this.origin,
+        redirect_uri,
+        scope: "profile.read email.read",
+        purpose: "sign_in",
+        nonce,
+        state,
+        code_challenge: crypto
+          .createHash("sha256")
+          .update(verifier)
+          .digest("base64url"),
+        code_challenge_method: "S256",
+      });
+      if (
+        value.error ||
+        typeof value.request_id !== "string" ||
+        !/^[A-Za-z0-9_-]{43}$/.test(value.request_id) ||
+        typeof value.expires_in !== "number" ||
+        !(value.expires_in >= 1 && value.expires_in <= 600) ||
+        value.authorization_uri !==
+          this.issuer + "/oauth/authorize?request=" + value.request_id
+      )
+        throw new MediaError(
+          "KagNode returned an invalid sign-in address.",
+          502,
+        );
+      const current = this.loginRow(browser, id);
+      if (
+        !this.store.run(
+          "UPDATE account_sign_in SET status='pending',request_id=?,verification=?,expires=? WHERE id=? AND status='starting'",
+          value.request_id,
+          value.authorization_uri,
+          Math.min(current.expires, Date.now() + value.expires_in * 1000),
+          id,
+        ).changes
+      )
+        throw new MediaError("Sign-in changed. Start again.", 409);
+      return this.loginPublic(this.loginRow(browser, id));
+    } catch (error) {
+      this.store.run("DELETE FROM account_sign_in WHERE id=?", id);
+      await this.cancelBrowser({ request_id: value?.request_id, verifier });
+      throw error;
+    }
+  }
+  async callback(
+    browser: string,
+    state: string,
+    issuer: string,
+    code = "",
+    error = "",
+  ) {
+    if (issuer !== this.issuer || !/^[A-Za-z0-9_-]{43}$/.test(state))
+      throw new MediaError("The sign-in callback did not match.", 403);
+    const row = this.store.one(
+      "SELECT * FROM account_sign_in WHERE browser=? AND state_hash=? AND flow='browser'",
+      digest(browser),
+      digest(state),
+    );
+    if (!row) throw new MediaError("The sign-in callback did not match.", 403);
+    this.loginRow(browser, row.id);
+    if (
+      Boolean(error) === Boolean(code) ||
+      (code && !/^[A-Za-z0-9_-]{43,200}$/.test(code))
+    )
+      throw new MediaError("Invalid sign-in callback.", 400);
+    if (
+      !this.store.run(
+        "UPDATE account_sign_in SET status='polling' WHERE id=? AND status='pending'",
+        row.id,
+      ).changes
+    )
+      throw new MediaError("This sign-in callback was already used.", 409);
+    let value: any;
+    try {
+      if (error) throw new MediaError("KagNode sign-in was denied.", 403);
+      value = await this.request("POST", "token", {
+        grant_type: "authorization_code",
+        client_id: "kagnode-media",
+        code,
+        redirect_uri: row.redirect_uri,
+        code_verifier: row.verifier,
+      });
+      await this.authorizeLogin(browser, row.id, row, value);
+      this.store.run(
+        "UPDATE account_sign_in SET verifier='',state_hash='' WHERE id=?",
+        row.id,
+      );
+    } catch {
+      this.store.run(
+        "UPDATE account_sign_in SET status='failed',verifier='',failure=? WHERE id=?",
+        "KagNode sign-in could not be completed. Start again or sign in locally.",
+        row.id,
+      );
+      await this.cancelBrowser(row);
+    }
+    return row.id;
+  }
   async login(browser: string, action: string, attempt = "") {
     if (!browser || browser.length > 512)
       throw new MediaError("Reload the sign-in page.", 403);
@@ -126,7 +309,7 @@ export class AccountProfiles {
       );
       if (row) {
         this.forgetLogin(row);
-        await this.cancelDevice(row.device);
+        await this.cancelBrowser(row);
         await this.flushRevocations();
       }
       return { pending: false, authorized: false };
@@ -160,7 +343,7 @@ export class AccountProfiles {
           generation,
         );
       });
-      for (const old of previous) await this.cancelDevice(old.device);
+      for (const old of previous) await this.cancelBrowser(old);
       let value: any;
       try {
         value = await this.request("POST", "device", {
@@ -199,7 +382,16 @@ export class AccountProfiles {
     }
     if (action !== "status") throw new MediaError("Invalid sign-in action.");
     const row = this.loginRow(browser, attempt);
-    if (row.status === "ready" || row.status === "polling")
+    if (row.status === "failed")
+      throw new MediaError(
+        row.failure || "KagNode sign-in failed. Start again.",
+        403,
+      );
+    if (
+      row.flow === "browser" ||
+      row.status === "ready" ||
+      row.status === "polling"
+    )
       return this.loginPublic(row);
     if (row.status !== "pending")
       throw new MediaError("Sign-in is still starting.", 409);
@@ -228,6 +420,21 @@ export class AccountProfiles {
         );
         return this.loginPublic(this.loginRow(browser, attempt));
       }
+      return await this.authorizeLogin(browser, attempt, row, value);
+    } catch (error) {
+      if (row.flow !== "browser")
+        this.store.run("DELETE FROM account_sign_in WHERE id=?", attempt);
+      await this.cancelBrowser(row);
+      throw error;
+    }
+  }
+  private async authorizeLogin(
+    browser: string,
+    attempt: string,
+    row: any,
+    value: any,
+  ) {
+    try {
       const proof = value.authorization,
         now = Date.now() / 1000;
       if (
@@ -301,7 +508,13 @@ export class AccountProfiles {
       if (!changed) throw new MediaError("Sign-in changed. Start again.", 409);
       return this.loginPublic(this.loginRow(browser, attempt));
     } catch (error) {
-      this.store.run("DELETE FROM account_sign_in WHERE id=?", attempt);
+      if (row.flow === "browser")
+        this.store.run(
+          "UPDATE account_sign_in SET status='failed',tokens='',verifier='',failure=? WHERE id=?",
+          "KagNode sign-in could not be completed. Start again or sign in locally.",
+          attempt,
+        );
+      else this.store.run("DELETE FROM account_sign_in WHERE id=?", attempt);
       if (/^[A-Za-z0-9_-]{40,200}$/.test(value?.refresh_token || ""))
         this.store.run(
           "INSERT OR IGNORE INTO account_profile_revocations VALUES(?,?)",
@@ -309,7 +522,7 @@ export class AccountProfiles {
           Date.now(),
         );
       await this.flushRevocations();
-      await this.cancelDevice(row.device);
+      await this.cancelBrowser(row);
       throw error;
     }
   }
