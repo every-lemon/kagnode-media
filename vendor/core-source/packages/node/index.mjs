@@ -199,7 +199,11 @@ export function installCore(
 }
 export function managerRequest(appId, action = "status", data = {}) {
   validApp(appId);
-  if (!["status", "check", "apply", "rollback", "policy"].includes(action))
+  if (
+    !["status", "summary", "check", "apply", "rollback", "policy"].includes(
+      action,
+    )
+  )
     throw Error("Unknown Core action");
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({ ...data, action });
@@ -237,7 +241,12 @@ export function managerRequest(appId, action = "status", data = {}) {
     );
     req.on("timeout", () => req.destroy(Error("Core manager timeout")));
     req.on("error", (e) => {
-      if (action === "status" && ["ENOENT", "ECONNREFUSED"].includes(e.code))
+      if (action === "summary" && ["ENOENT", "ECONNREFUSED"].includes(e.code))
+        resolve({ available: false, notice: null });
+      else if (
+        action === "status" &&
+        ["ENOENT", "ECONNREFUSED"].includes(e.code)
+      )
         resolve({
           enabled: false,
           version: active(appId).version,
@@ -255,4 +264,53 @@ export function renderTemplate(name, slots = {}) {
   return TEMPLATES[name].replace(/\{\{([a-z]+)\}\}/g, (_match, key) =>
     String(slots[key] || ""),
   );
+}
+
+function publicNotice(value) {
+  if (value?.available !== true) return { available: false, notice: null };
+  const n = value.notice;
+  if (n === null) return { available: true, notice: null };
+  const text = (v, max) =>
+    typeof v === "string" &&
+    v.length > 0 &&
+    v.length <= max &&
+    !/[\x00-\x1f<>]/.test(v);
+  if (
+    !n ||
+    Object.keys(n).sort().join(",") !== "id,items,title,version" ||
+    !text(n.id, 64) ||
+    !/^[a-f0-9]{64}$/.test(n.id) ||
+    !text(n.version, 40) ||
+    !/^\d+\.\d+\.\d+$/.test(n.version) ||
+    !text(n.title, 120) ||
+    !Array.isArray(n.items) ||
+    n.items.length < 1 ||
+    n.items.length > 8 ||
+    !n.items.every((v) => text(v, 240))
+  )
+    throw Error("Invalid update summary");
+  return { available: true, notice: n };
+}
+export async function readNotice(appId, subject, isDismissed) {
+  try {
+    if (typeof subject !== "string" || !subject || subject.length > 200)
+      throw Error("Local identity required");
+    const value = publicNotice(await managerRequest(appId, "summary"));
+    if (value.notice && (await isDismissed(subject, value.notice.id)))
+      return { available: true, notice: null };
+    return value;
+  } catch {
+    return { available: false, notice: null };
+  }
+}
+export async function dismissNotice(appId, subject, id, saveDismissed) {
+  const value = await readNotice(appId, subject, () => false);
+  if (!value.notice || value.notice.id !== id)
+    throw Error("This update summary is no longer available");
+  try {
+    await saveDismissed(subject, id);
+  } catch {
+    throw Error("The update summary could not be dismissed");
+  }
+  return { dismissed: true };
 }

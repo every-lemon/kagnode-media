@@ -1,6 +1,8 @@
 import {
   installCore,
   managerRequest,
+  readNotice,
+  dismissNotice,
   renderTemplate as renderCoreTemplate,
 } from "../vendor/kagnode-core.mjs";
 import { AccountProfiles } from "./account-sync.js";
@@ -88,7 +90,7 @@ export function createApp(config: Config, store = new Store(config)) {
   });
   app.get("/healthz", (_q, r) => {
     store.one("SELECT 1");
-    r.json({ ok: true, service: "kagnode-media", version: "5.0.1" });
+    r.json({ ok: true, service: "kagnode-media", version: "5.0.2" });
   });
   app.use((q, r, next) => {
     if (q.get("Host") !== new URL(config.origin).host) return r.sendStatus(421);
@@ -204,6 +206,35 @@ export function createApp(config: Config, store = new Store(config)) {
         ),
       );
     });
+  app.get("/api/v1/kagnode-core/whats-new", async (q, r) => {
+    const user = requireUser(q);
+    r.set("Cache-Control", "no-store");
+    r.json(
+      await readNotice(
+        "media",
+        user.id,
+        (subject, id) =>
+          !!store.one(
+            "SELECT 1 FROM core_notice_receipts WHERE user_id=? AND notice_id=?",
+            subject,
+            id,
+          ),
+      ),
+    );
+  });
+  app.post("/api/v1/kagnode-core/whats-new/dismiss", async (q, r) => {
+    const user = requireUser(q);
+    r.set("Cache-Control", "no-store");
+    r.json(
+      await dismissNotice("media", user.id, q.body?.id, (subject, id) => {
+        store.run(
+          "INSERT INTO core_notice_receipts(user_id,notice_id) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET notice_id=excluded.notice_id",
+          subject,
+          id,
+        );
+      }),
+    );
+  });
   app.all("/api/v1/kagnode-core/:action", async (q, r) => {
     const user = requireUser(q);
     if (user.role !== "admin")

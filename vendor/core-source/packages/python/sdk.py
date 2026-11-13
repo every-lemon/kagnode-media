@@ -148,7 +148,7 @@ def inject(body, app="kagnode", context=None):
 
 def manager_request(app, action="status", data=None):
     app = application(app)
-    if action not in ("status", "check", "apply", "rollback", "policy"):
+    if action not in ("status", "summary", "check", "apply", "rollback", "policy"):
         raise ValueError("Unknown Core action")
     connection = http.client.HTTPConnection("localhost", timeout=45)
     try:
@@ -170,6 +170,8 @@ def manager_request(app, action="status", data=None):
             raise ValueError(value.get("error", "Core request failed"))
         return value
     except OSError:
+        if action == "summary":
+            return {"available": False, "notice": None}
         if action == "status":
             return {
                 "enabled": False,
@@ -233,11 +235,44 @@ def register_flask(app, app_id, context=None):
         return response
 
 
-def register_flask_api(app, app_id, authenticated, administrator, write_guard=None):
+def register_flask_api(
+    app,
+    app_id,
+    authenticated,
+    administrator,
+    write_guard=None,
+    *,
+    notice_subject=None,
+    notice_is_dismissed=None,
+    notice_dismiss=None,
+    notice_write_guard=None,
+):
     """Host supplies its local authentication/authorization and existing CSRF guard."""
     from flask import request, jsonify
 
     def execute(action):
+        if action in ("whats-new", "whats-new-dismiss"):
+            if not all((notice_subject, notice_is_dismissed, notice_dismiss)):
+                if action == "whats-new-dismiss":
+                    return jsonify(error="The update summary is unavailable."), 503
+                return jsonify(available=False, notice=None)
+            try:
+                if action == "whats-new":
+                    if request.method != "GET":
+                        return jsonify(error="Use GET"), 405
+                    return jsonify(
+                        read_notice(app_id, notice_subject(), notice_is_dismissed)
+                    )
+                if request.method != "POST":
+                    return jsonify(error="Use POST"), 405
+                body = request.get_json(silent=True) or {}
+                return jsonify(
+                    dismiss_notice(
+                        app_id, notice_subject(), body.get("id"), notice_dismiss
+                    )
+                )
+            except Exception:
+                return jsonify(error="The update summary is unavailable."), 400
         if not administrator():
             return jsonify(error="Local administrator access is required."), 403
         if request.method == "GET" and action != "status":
@@ -253,8 +288,9 @@ def register_flask_api(app, app_id, authenticated, administrator, write_guard=No
             return jsonify(error=str(error)), 400
 
     def handler(action):
-        if request.method == "POST" and write_guard:
-            return write_guard(lambda: execute(action))()
+        guard = notice_write_guard if action.startswith("whats-new") else write_guard
+        if request.method == "POST" and guard:
+            return guard(lambda: execute(action))()
         return execute(action)
 
     app.add_url_rule(
@@ -262,6 +298,13 @@ def register_flask_api(app, app_id, authenticated, administrator, write_guard=No
         endpoint="kagnode_core_api",
         view_func=authenticated(handler),
         methods=["GET", "POST"],
+    )
+
+    app.add_url_rule(
+        "/api/v1/kagnode-core/whats-new/dismiss",
+        endpoint="kagnode_core_notice_dismiss",
+        view_func=authenticated(lambda: handler("whats-new-dismiss")),
+        methods=["POST"],
     )
 
 
@@ -285,3 +328,63 @@ def icon(name):
         + icons.get(key, "")
         + "</svg>"
     )
+
+
+def _public_notice(value):
+    if not isinstance(value, dict) or value.get("available") is not True:
+        return {"available": False, "notice": None}
+    notice = value.get("notice")
+    if notice is None:
+        return {"available": True, "notice": None}
+    if not isinstance(notice, dict) or set(notice) != {
+        "id",
+        "version",
+        "title",
+        "items",
+    }:
+        raise ValueError("Invalid update summary")
+
+    def text(item, maximum):
+        return (
+            isinstance(item, str)
+            and 1 <= len(item) <= maximum
+            and not any(ord(c) < 32 or c in "<>" for c in item)
+        )
+
+    if (
+        not re.fullmatch(r"[a-f0-9]{64}", str(notice["id"]))
+        or not re.fullmatch(r"\d+\.\d+\.\d+", str(notice["version"]))
+        or len(str(notice["version"])) > 40
+        or not text(notice["title"], 120)
+        or not isinstance(notice["items"], list)
+        or not 1 <= len(notice["items"]) <= 8
+        or not all(text(item, 240) for item in notice["items"])
+    ):
+        raise ValueError("Invalid update summary")
+    return {"available": True, "notice": notice}
+
+
+def read_notice(app_id, subject, is_dismissed):
+    """Only an authenticated immutable local subject may read its public summary."""
+    try:
+        if not isinstance(subject, str) or not 1 <= len(subject) <= 200:
+            raise ValueError("Local identity is required")
+        value = _public_notice(manager_request(app_id, "summary"))
+        if value["notice"] and is_dismissed(subject, value["notice"]["id"]):
+            return {"available": True, "notice": None}
+        return value
+    except Exception:
+        # Older/embedded helpers have no event capability. Never relay privileged
+        # errors, candidate data, filesystem paths or local configuration.
+        return {"available": False, "notice": None}
+
+
+def dismiss_notice(app_id, subject, notice_id, save_dismissed):
+    value = read_notice(app_id, subject, lambda *_: False)
+    if not value["notice"] or value["notice"]["id"] != notice_id:
+        raise ValueError("This update summary is no longer available")
+    try:
+        save_dismissed(subject, notice_id)
+    except Exception:
+        raise ValueError("The update summary could not be dismissed") from None
+    return {"dismissed": True}

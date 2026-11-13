@@ -1,0 +1,99 @@
+{
+  "platforms": [
+    [
+      "ubuntu",
+      "24.04"
+    ],
+    [
+      "debian",
+      "12"
+    ],
+    [
+      "debian",
+      "13"
+    ]
+  ],
+  "architectures": [
+    "x86_64",
+    "aarch64"
+  ],
+  "required_paths": [
+    "data"
+  ],
+  "dependencies": [
+    "systemctl",
+    "python3",
+    "node",
+    "npm",
+    "useradd",
+    "runuser"
+  ],
+  "warnings": [
+    "Only the listed application or native setup is performed. Existing data is never reset.",
+    "Setup requires local administrator review; source/data package installation alone does not start services."
+  ],
+  "kind": "application",
+  "user": "kagnode-media",
+  "fields": [
+    {
+      "key": "port",
+      "label": "Loopback web port",
+      "type": "integer",
+      "required": false,
+      "secret": false,
+      "default": 8100
+    },
+    {
+      "key": "public_url",
+      "label": "Public HTTPS origin",
+      "type": "string",
+      "required": true,
+      "secret": false,
+      "default": ""
+    },
+    {
+      "key": "admin_email",
+      "label": "First administrator email",
+      "type": "string",
+      "required": true,
+      "secret": false,
+      "default": ""
+    },
+    {
+      "key": "admin_name",
+      "label": "First administrator display name",
+      "type": "string",
+      "required": true,
+      "secret": false,
+      "default": "Administrator"
+    },
+    {
+      "key": "admin_password_file",
+      "label": "Administrator password file",
+      "type": "string",
+      "required": true,
+      "secret": true,
+      "default": ""
+    }
+  ],
+  "paths": {
+    "code": "/opt/kagnode/media",
+    "configuration": "/etc/kagnode/media.env",
+    "data": "/var/lib/kagnode/media",
+    "unit": "/etc/systemd/system/kagnode-media.service"
+  },
+  "units": [
+    "kagnode-media"
+  ],
+  "health_path": "/healthz",
+  "health_key": "ok",
+  "health_scope": "Media web application only. FFmpeg/transcoding, worker and hardware remain separate opt-in setup and qualification.",
+  "changes": [
+    "Create dedicated service identity, fresh source and private data directory",
+    "Install the locked Node dependencies and build the web application",
+    "Create the first local administrator from a private password file",
+    "Start only the loopback Media web service; no worker or processing is enabled"
+  ],
+  "project": "media",
+  "version": "5.0.2"
+}
