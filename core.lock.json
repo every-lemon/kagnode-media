@@ -2,12 +2,12 @@
   "schema": 1,
   "application": "media",
   "repository": "every-lemon/kagnode-core",
-  "baseline": "5.0.6",
-  "adapter": "5.0.6",
+  "baseline": "5.0.7",
+  "adapter": "5.0.7",
   "ui_api": 1,
   "patch_range": "5.0.x",
   "automatic_ui_patches": true,
   "backend_updates": "reviewed",
-  "fallback_manifest_sha256": "91ea3715e975294bcd28f8edfbaa5b2928fbafaf81f8a85625259e929b757ac3",
-  "source_commit": "01010153018655c80a0ac3c3e705f03cd73341f0"
+  "fallback_manifest_sha256": "d23c2eb608519151942c0ad7491e90de52f3b5463f4525fd9b0ee13726f84c5d",
+  "source_commit": "c194c596ebb373d6deac7bdecc708587992df729"
 }
