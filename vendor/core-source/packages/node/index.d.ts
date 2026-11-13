@@ -40,3 +40,25 @@ export function renderTemplate(
   name: string,
   slots?: Record<string, string>,
 ): string;
+
+export interface CoreNotice {
+  id: string;
+  version: string;
+  title: string;
+  items: string[];
+}
+export interface CoreNoticeState {
+  available: boolean;
+  notice: CoreNotice | null;
+}
+export function readNotice(
+  appId: string,
+  subject: string,
+  isDismissed: (subject: string, id: string) => boolean | Promise<boolean>,
+): Promise<CoreNoticeState>;
+export function dismissNotice(
+  appId: string,
+  subject: string,
+  id: string,
+  saveDismissed: (subject: string, id: string) => void | Promise<void>,
+): Promise<{ dismissed: true }>;

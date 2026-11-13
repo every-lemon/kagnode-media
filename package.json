@@ -1,6 +1,6 @@
 {
   "name": "kagnode-media",
-  "version": "5.0.1",
+  "version": "5.0.2",
   "private": true,
   "description": "KagNode Media: self-hosted publishing, playback and photo libraries",
   "license": "AGPL-3.0-only",

@@ -198,6 +198,27 @@ def verify_signature(data, signature, public_key=PUBLIC_KEY):
             raise ValueError("Core release signature verification failed")
 
 
+def validate_summary(value):
+    if not isinstance(value, dict) or set(value) != {"title", "items"}:
+        raise ValueError("Invalid public Core summary")
+
+    def text(item, maximum):
+        return (
+            isinstance(item, str)
+            and 1 <= len(item) <= maximum
+            and not any(ord(c) < 32 or c in "<>" for c in item)
+        )
+
+    if (
+        not text(value["title"], 120)
+        or not isinstance(value["items"], list)
+        or not 1 <= len(value["items"]) <= 8
+        or not all(text(item, 240) for item in value["items"])
+    ):
+        raise ValueError("Invalid public Core summary")
+    return {"title": value["title"], "items": list(value["items"])}
+
+
 def validate_manifest(value):
     if not isinstance(value, dict):
         raise ValueError("Invalid Core manifest")
@@ -233,6 +254,8 @@ def validate_manifest(value):
         value.get("entrypoints", {})
     ) != {"theme", "script", "style"}:
         raise ValueError("Core entrypoints are incomplete")
+    if "user_summary" in value:
+        validate_summary(value["user_summary"])
     return value
 
 
@@ -385,6 +408,8 @@ class Manager:
         result = {
             "enabled": True,
             **{k: v for k, v in state.items() if k not in ("uid", "gid")},
+            "summaries": state.get("summaries", True),
+            "capabilities": {"update_summaries": True, "automatic_ui_patches": True},
             "candidate": read(self.app(name) / "candidate.json"),
             "operation": read(self.app(name) / "operation.json", {}),
         }
@@ -569,7 +594,7 @@ class Manager:
             return self._cached_version(requested)
         return self._cache(self._resolve_version(requested))
 
-    def install(self, name, release_id=None):
+    def install(self, name, release_id=None, *, automatic=False):
         with self.lock():
             status = self._check(name)
             candidate = status["candidate"]
@@ -580,6 +605,8 @@ class Manager:
             ):
                 raise ValueError("The reviewed Core release changed; check again")
             state = self.state(name)
+            if automatic and not state.get("automatic", True):
+                raise ValueError("Automatic Core patches are paused")
             if version(candidate["version"])[:2] != version(state["baseline"])[:2]:
                 raise ValueError(
                     "Backend or minor/major upgrades require application review"
@@ -605,6 +632,25 @@ class Manager:
                         if candidate["changed"]
                         else state.get("previous"),
                         "last_error": "",
+                        "activation": (
+                            {
+                                "id": hashlib.sha256(
+                                    (
+                                        name
+                                        + ":"
+                                        + candidate["version"]
+                                        + ":"
+                                        + str(time.time_ns())
+                                    ).encode()
+                                ).hexdigest(),
+                                "version": candidate["version"],
+                                "automatic": True,
+                            }
+                            if automatic and candidate["changed"]
+                            else None
+                        )
+                        if candidate["changed"]
+                        else state.get("activation"),
                         "updated": int(time.time()),
                     },
                 )
@@ -716,14 +762,51 @@ class Manager:
             ):
                 raise ValueError("Installed Core asset integrity failed")
 
-    def policy(self, name, automatic):
-        if type(automatic) is not bool:
-            raise ValueError("Automatic update policy must be true or false")
+    def summary(self, name):
         with self.lock():
-            atomic(
-                self.app(name) / "state.json",
-                {**self.state(name), "automatic": automatic},
-            )
+            return self._summary(name)
+
+    def _summary(self, name):
+        state = self.state(name)
+        event = state.get("activation")
+        empty = {"available": True, "notice": None}
+        if (
+            not state.get("summaries", True)
+            or not isinstance(event, dict)
+            or event.get("automatic") is not True
+            or event.get("version") != state["version"]
+            or not re.fullmatch(r"[a-f0-9]{64}", str(event.get("id", "")))
+        ):
+            return empty
+        operation = read(self.app(name) / "operation.json", {})
+        if (
+            operation.get("phase") != "complete"
+            or operation.get("version") != state["version"]
+        ):
+            return empty
+        manifest = self._cached_version(state["version"])
+        if "user_summary" not in manifest:
+            return empty
+        return {
+            "available": True,
+            "notice": {
+                "id": event["id"],
+                "version": state["version"],
+                **validate_summary(manifest["user_summary"]),
+            },
+        }
+
+    def policy(self, name, automatic=None, summaries=None):
+        if automatic is None and summaries is None:
+            raise ValueError("Choose an update policy")
+        updates = {}
+        for key, value in (("automatic", automatic), ("summaries", summaries)):
+            if value is not None:
+                if type(value) is not bool:
+                    raise ValueError("Core policies must be true or false")
+                updates[key] = value
+        with self.lock():
+            atomic(self.app(name) / "state.json", {**self.state(name), **updates})
         return self.status(name)
 
     def adopt(self, name, lock_file, expected_baseline):
@@ -852,7 +935,9 @@ class Manager:
                 if result["automatic"] and (result.get("candidate") or {}).get(
                     "changed"
                 ):
-                    self.install(name, result["candidate"]["release_id"])
+                    self.install(
+                        name, result["candidate"]["release_id"], automatic=True
+                    )
             except OperationBusy:
                 # Contention is expected: the manual operation owns this state.
                 continue
@@ -921,12 +1006,16 @@ def _serve_locked(manager, stop):
                     action = data.get("action")
                     if action == "status":
                         result = manager.status(name)
+                    elif action == "summary":
+                        result = manager.summary(name)
                     elif action == "check":
                         result = manager.check(name)
                     elif action == "apply":
                         result = manager.install(name, data.get("release_id"))
                     elif action == "policy":
-                        result = manager.policy(name, data.get("automatic"))
+                        result = manager.policy(
+                            name, data.get("automatic"), data.get("summaries")
+                        )
                     elif action == "rollback":
                         result = manager.rollback(name)
                     else:
@@ -1018,7 +1107,8 @@ def main():
         a = s.add_parser(operation)
         a.add_argument("app")
         if operation == "policy":
-            a.add_argument("--automatic", choices=("on", "off"), required=True)
+            a.add_argument("--automatic", choices=("on", "off"))
+            a.add_argument("--summaries", choices=("on", "off"))
         if operation == "apply":
             a.add_argument("--release-id", type=int)
     args = p.parse_args()
@@ -1038,7 +1128,11 @@ def main():
     elif args.command == "rollback":
         result = manager.rollback(args.app)
     else:
-        result = manager.policy(args.app, args.automatic == "on")
+        result = manager.policy(
+            args.app,
+            None if args.automatic is None else args.automatic == "on",
+            None if args.summaries is None else args.summaries == "on",
+        )
     print(json.dumps(result, indent=2))
 
 
