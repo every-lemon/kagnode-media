@@ -250,7 +250,7 @@ export function managerRequest(appId, action = "status", data = {}) {
         resolve({
           enabled: false,
           version: active(appId).version,
-          message: "Enable Core management with KagNode CLI on this server.",
+          message: "Enable Core management with KagNode Daemon on this server.",
         });
       else reject(e);
     });
@@ -281,7 +281,7 @@ function publicNotice(value) {
     !text(n.id, 64) ||
     !/^[a-f0-9]{64}$/.test(n.id) ||
     !text(n.version, 40) ||
-    !/^\d+\.\d+\.\d+$/.test(n.version) ||
+    !/^\d+\.\d+\.\d+(?:-beta\.[1-9]\d*)?$/.test(n.version) ||
     !text(n.title, 120) ||
     !Array.isArray(n.items) ||
     n.items.length < 1 ||

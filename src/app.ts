@@ -90,7 +90,7 @@ export function createApp(config: Config, store = new Store(config)) {
   });
   app.get("/healthz", (_q, r) => {
     store.one("SELECT 1");
-    r.json({ ok: true, service: "kagnode-media", version: "5.0.2" });
+    r.json({ ok: true, service: "kagnode-media", version: "5.0.3" });
   });
   app.use((q, r, next) => {
     if (q.get("Host") !== new URL(config.origin).host) return r.sendStatus(421);

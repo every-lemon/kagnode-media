@@ -22,7 +22,7 @@ The panel shows retry controls for failed loads and ignores late responses after
 
 ## Application update recovery
 
-The local-administration update panel shows recovery details and metadata filenames returned by KagNode CLI. Recovery, an active local operation or `can_apply: false` prevents an install action. A release check may replace a damaged candidate cache; installation state and operation records require administrator review rather than automatic deletion. New managers supply lock-backed `in_progress`; older managers retain phase-based display compatibility. Ordinary users receive no update controls.
+The local-administration update panel shows recovery details and metadata filenames returned by KagNode Daemon. Recovery, an active local operation or `can_apply: false` prevents an install action. A release check may replace a damaged candidate cache; installation state and operation records require administrator review rather than automatic deletion. New managers supply lock-backed `in_progress`; older managers retain phase-based display compatibility. Ordinary users receive no update controls.
 
 ## Login with KagNode
 

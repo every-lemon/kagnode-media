@@ -298,7 +298,7 @@
           ? (recovery ? "Recorded version " : "Installed ") + value.installed
           : recovery
             ? "Installation needs review"
-            : "Not managed by KagNode CLI";
+            : "Not managed by KagNode Daemon";
         status.textContent =
           `${installation} · ${value.channel || "stable"} channel` +
           (value.operation?.message ? "\n" + value.operation.message : "") +

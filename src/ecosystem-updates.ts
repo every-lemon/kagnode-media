@@ -64,7 +64,7 @@ export async function manageUpdate(action: string, data: any = {}) {
         resolve({
           enabled: false,
           message:
-            "Enable this application’s update panel with KagNode CLI on the server.",
+            "Enable this application’s update panel with KagNode Daemon on the server.",
         });
       else
         reject(
