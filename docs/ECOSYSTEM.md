@@ -1,6 +1,6 @@
 # KagNode installation and updates
 
-The keyboard-only [KagNode CLI](https://github.com/every-lemon/kagnode-cli) provides
+The keyboard-only [KagNode Daemon](https://github.com/every-lemon/kagnode-cli) provides
 `kagnode setup` and scriptable `kagnode apps` commands. Its
 [ecosystem guide](https://github.com/every-lemon/kagnode-cli/blob/main/docs/ECOSYSTEM.md)
 covers prerequisites, supported adapters, service setup and recovery.

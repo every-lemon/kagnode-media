@@ -176,7 +176,7 @@ def manager_request(app, action="status", data=None):
             return {
                 "enabled": False,
                 "version": active(app)["version"],
-                "message": "Enable Core management with KagNode CLI on this server.",
+                "message": "Enable Core management with KagNode Daemon on this server.",
             }
         raise ValueError("The local Core manager is unavailable")
     finally:
@@ -353,7 +353,9 @@ def _public_notice(value):
 
     if (
         not re.fullmatch(r"[a-f0-9]{64}", str(notice["id"]))
-        or not re.fullmatch(r"\d+\.\d+\.\d+", str(notice["version"]))
+        or not re.fullmatch(
+            r"\d+\.\d+\.\d+(?:-beta\.[1-9]\d*)?", str(notice["version"])
+        )
         or len(str(notice["version"])) > 40
         or not text(notice["title"], 120)
         or not isinstance(notice["items"], list)

@@ -1,0 +1,27 @@
+[package]
+name = "kagnode-core-manager"
+version = "5.0.12"
+edition = "2024"
+rust-version = "1.88"
+license = "AGPL-3.0-only"
+repository = "https://github.com/every-lemon/kagnode-core"
+description = "Signed, compatible local Core UI patch management without backend hooks"
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+clap = { version = "4.5", features = ["derive"] }
+flate2 = "1"
+getrandom = "0.4"
+hex = "0.4"
+libc = "0.2"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking", "json"] }
+ring = "0.17"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+signal-hook = "0.3"
+tar = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
